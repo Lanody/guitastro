@@ -1,0 +1,1256 @@
+// Exercises from the Drop-C booklet (Modul A, B, C), turned into playable
+// patterns, plus the parts the daily plan adds: extra technique (E), rhythm (R),
+// chord progressions (K) and improvisation (I). Each booklet builder returns the
+// booklet version unless variation is active; then it may pick a variant
+// (other fingering, position, strings…).
+
+import { voiceProgression, namesText, romanText, type Chord, type ChordSlot, type Voicing } from '../music/chords';
+import { padBar } from '../music/meter';
+import { NATURAL_MINOR, getScale } from '../music/scales';
+import {
+  STRING_DAT,
+  STRING_LONG,
+  STRING_SHORT,
+  TUNING,
+  degreeOf,
+  fretboardNotes,
+  fretMidi,
+  midiToPc,
+  noteName,
+  oneStringOctave,
+  scaleRun,
+  secondPosition,
+  sixStringPath,
+  twoStringGroup,
+  type Pos,
+  type ScaleDef,
+} from '../music/theory';
+import { pick, shuffle, type Rng } from './rng';
+import type { BlockId, Exercise, FretMap, MapDot, Note, Phase, Step } from './types';
+
+/** Day 1 of a scale block: learn it · middle days: deepen · last day: recall, transpose, use. */
+export type ScaleStage = 'learn' | 'deepen' | 'apply';
+
+export interface BuildCtx {
+  rng: Rng;
+  /** Variation unlocked (after the first two weeks, or by setting). */
+  vary: boolean;
+  /** The day's scale in the day's key. */
+  scale: ScaleDef;
+  stage?: ScaleStage;
+  /** The day's chord progression (in the scale's key). */
+  progression?: Chord[];
+}
+
+// ---------------------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------------------
+
+const n = (s: number, f: number, t?: Note['t']): Note => (t ? { s, f, t } : { s, f });
+const rests = (k: number): Step[] => Array.from({ length: k }, () => 'rest' as const);
+const holds = (k: number): Step[] => Array.from({ length: k }, () => 'hold' as const);
+
+/** Fret for finger digit with one finger per fret from `base`. */
+const permFrets = (perm: string, base: number) => perm.split('').map((d) => base + Number(d) - 1);
+
+/** Sensible fingering for a 2–3 note group on one string. */
+export function fingering(frets: number[]): string {
+  const min = Math.min(...frets);
+  const span = Math.max(...frets) - min;
+  if (span <= 3) return frets.map((f) => f - min + 1).join('–');
+  return frets.map((f, i) => (i === 0 ? 1 : i === frets.length - 1 ? 4 : f - min <= 2 ? 2 : 3)).join('–');
+}
+
+const dash = (perm: string) => perm.split('').join('–');
+const fretsTxt = (ps: Pos[]) => ps.map((p) => p.f).join('–');
+
+/** Booklet version first; with variation on, ~35% booklet, else a random variant. */
+function choose<T>(ctx: BuildCtx, variants: T[]): { v: T; orig: boolean } {
+  if (!ctx.vary || variants.length === 1 || ctx.rng() < 0.35) return { v: variants[0], orig: true };
+  return { v: pick(ctx.rng, variants.slice(1)), orig: false };
+}
+
+function scaleMap(scale: ScaleDef, from = 5, to = 12, caption?: string): FretMap {
+  const dots: MapDot[] = fretboardNotes(scale, from, to).map((p) => {
+    const deg = degreeOf(scale, fretMidi(p.s, p.f));
+    return { ...p, kind: deg === 0 ? 'root' : scale.color.includes(deg) ? 'color' : 'note' };
+  });
+  return { from, to, dots, caption };
+}
+
+/** Scale map over the fret window of some positions (at least 8 frets wide). */
+function mapAround(scale: ScaleDef, ps: Pos[], caption?: string): FretMap {
+  const lo = Math.max(0, Math.min(...ps.map((p) => p.f)) - 1);
+  const hi = Math.max(lo + 7, Math.max(...ps.map((p) => p.f)) + 1);
+  return scaleMap(scale, lo, Math.min(17, hi), caption ?? `Gold = ${noteName(scale.root)} (Grundton) · Türkis = ${scale.colorLabel}`);
+}
+
+function pathUpDown(path: Pos[], tech?: 'legato'): { up: Step[]; down: Step[] } {
+  const up = path.map((p, i) => {
+    const prev = path[i - 1];
+    return n(p.s, p.f, tech && prev && prev.s === p.s ? 'h' : undefined);
+  });
+  const rev = [...path].reverse();
+  const down = rev.map((p, i) => {
+    const prev = rev[i - 1];
+    return n(p.s, p.f, tech && prev && prev.s === p.s ? 'p' : undefined);
+  });
+  return { up, down };
+}
+
+export const CREATIVE_PROMPTS = [
+  'Nur drei Töne – aber fünf verschiedene Rhythmen.',
+  'Frage & Antwort: Phrase 1 endet offen (nicht auf dem Grundton), Phrase 2 landet auf dem Grundton.',
+  'Beginne jede Phrase auf „und“ statt auf der Eins.',
+  'Wiederhole ein Motiv dreimal und ändere nur den letzten Ton.',
+  'Mehr Luft als Töne: nach jeder Phrase einen ganzen Takt Pause.',
+  'Jede Phrase endet auf einem gehaltenen Ton mit leichtem Vibrato.',
+  'Rhythmus „kurz – kurz – lang“ – Töne variieren, Rhythmus bleibt.',
+  'Starte hoch und lande tief – dann genau umgekehrt.',
+  'Erst als Achtel, dann dieselbe Idee als Triolen.',
+  'Ein Ton darf zweimal hintereinander kommen – Repetition ist ein Stilmittel.',
+  'Einen Slide in jede Phrase einbauen.',
+  'Leise anfangen, dieselbe Phrase laut wiederholen – Dynamik ist Ausdruck.',
+  'Sing die Phrase zuerst innerlich, dann spiel sie.',
+  'Maximal vier Töne pro Phrase, aber jede Phrase klar mit Anfang und Ende.',
+  'Eine gute Idee behalten und nur den Rhythmus ändern – keine neuen Töne suchen.',
+];
+
+export const RHYTHM_IDEAS = [
+  '„kurz – kurz – lang“',
+  '„lang – kurz – kurz“',
+  'punktiert: „lang – kurz“, „lang – kurz“',
+  'Auftakt: auf „und“ von 4 beginnen',
+  'Triolen: drei Töne pro Klick',
+  'Synkope: einen Ton über den nächsten Schlag hinweg halten',
+];
+
+const prompts = (ctx: BuildCtx, k: number) => shuffle(ctx.rng, CREATIVE_PROMPTS).slice(0, k);
+
+// ---------------------------------------------------------------------------
+// MODUL A · Zwei hohe Saiten
+// ---------------------------------------------------------------------------
+
+function pairName(lo: number, hi: number) {
+  return `${STRING_SHORT[lo]}/${STRING_SHORT[hi] === 'd' ? 'd' : STRING_SHORT[hi]}`;
+}
+
+function a1(ctx: BuildCtx): Exercise {
+  const { v, orig } = choose(ctx, [
+    { perm: '1234', base: 5, lo: 4, hi: 5 },
+    { perm: '1243', base: 5, lo: 4, hi: 5 },
+    { perm: '2143', base: 5, lo: 4, hi: 5 },
+    { perm: '1234', base: 7, lo: 4, hi: 5 },
+    { perm: '1234', base: 3, lo: 4, hi: 5 },
+    { perm: '1342', base: 5, lo: 4, hi: 5 },
+    { perm: '1234', base: 5, lo: 3, hi: 4 },
+  ]);
+  const up = permFrets(v.perm, v.base);
+  const down = [...up].reverse();
+  const pattern: Step[] = [
+    ...up.map((f) => n(v.lo, f)),
+    ...up.map((f) => n(v.hi, f)),
+    ...down.map((f) => n(v.hi, f)),
+    ...down.map((f) => n(v.lo, f)),
+  ];
+  return {
+    key: 'A1',
+    module: 'A',
+    num: 1,
+    title: 'Synchronisation',
+    focus: 'speed',
+    intro: `Finger ${dash(v.perm)} aufwärts, rückwärts abwärts. Die doppelte Note am Wendepunkt wird zweimal angeschlagen. Ohne zusätzliche Pause wiederholen. Wechselschlag, unbenutzte Saiten dämpfen.`,
+    variant: orig ? undefined : `Fingerfolge ${dash(v.perm)} · ab Bund ${v.base} · Saiten ${pairName(v.lo, v.hi)}`,
+    pattern,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Achtel – 2 Noten pro Klick.' },
+      { label: 'Minute 2', seconds: 60, sub: 4, text: 'Sechzehntel – nur wenn Minute 1 locker war. Sonst bei Achteln bleiben.' },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function a2(ctx: BuildCtx): Exercise {
+  const { v, orig } = choose(ctx, [
+    { perm: '1324', base: 5, lo: 4, hi: 5 },
+    { perm: '1423', base: 5, lo: 4, hi: 5 },
+    { perm: '2413', base: 5, lo: 4, hi: 5 },
+    { perm: '3142', base: 5, lo: 4, hi: 5 },
+    { perm: '1324', base: 7, lo: 4, hi: 5 },
+    { perm: '1324', base: 5, lo: 3, hi: 4 },
+  ]);
+  const up = permFrets(v.perm, v.base);
+  const down = [...up].reverse();
+  return {
+    key: 'A2',
+    module: 'A',
+    num: 2,
+    title: 'Fingerunabhängigkeit',
+    focus: 'accuracy',
+    intro: `Fingerfolge ${dash(v.perm)}, zurück ${dash([...v.perm].reverse().join(''))}. Finger nahe an der Saite halten, aber nicht künstlich auf dem Griffbrett festhalten.`,
+    variant: orig ? undefined : `Fingerfolge ${dash(v.perm)} · ab Bund ${v.base} · Saiten ${pairName(v.lo, v.hi)}`,
+    pattern: [...up.map((f) => n(v.lo, f)), ...up.map((f) => n(v.hi, f)), ...down.map((f) => n(v.hi, f)), ...down.map((f) => n(v.lo, f))],
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Mit Achteln beginnen.' },
+      { label: 'Minute 2', seconds: 60, sub: 4, text: 'Erst wenn Achtel sauber sind: Sechzehntel.' },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function runPattern(g: { low: Pos[]; high: Pos[] }): Step[] {
+  return [
+    ...g.low.map((p) => n(p.s, p.f)),
+    ...g.high.map((p) => n(p.s, p.f)),
+    ...[...g.high].reverse().map((p) => n(p.s, p.f)),
+    ...[...g.low].reverse().map((p) => n(p.s, p.f)),
+    ...rests(4),
+  ];
+}
+
+function a3(ctx: BuildCtx): Exercise {
+  const weekScale = ctx.scale.intervals.length === 7 ? ctx.scale : NATURAL_MINOR;
+  const { v, orig } = choose(ctx, [
+    { scale: NATURAL_MINOR, lo: 4, hi: 5, start: 5 },
+    { scale: NATURAL_MINOR, lo: 4, hi: 5, start: 3 },
+    { scale: NATURAL_MINOR, lo: 4, hi: 5, start: 6 },
+    { scale: NATURAL_MINOR, lo: 4, hi: 5, start: 8 },
+    { scale: NATURAL_MINOR, lo: 3, hi: 4, start: 5 },
+    { scale: weekScale, lo: 4, hi: 5, start: 5 },
+  ]);
+  const g = twoStringGroup(v.scale, v.lo, v.hi, v.start);
+  const names = [...g.low, ...g.high].map((p) => noteOf(p)).join('–');
+  return {
+    key: 'A3',
+    module: 'A',
+    num: 3,
+    title: `Kurzer ${v.scale === NATURAL_MINOR ? 'C-Moll' : v.scale.name}-Lauf`,
+    focus: 'speed',
+    intro: `${STRING_SHORT[v.lo]}-Saite ${fretsTxt(g.low)} (Finger ${fingering(g.low.map((p) => p.f))}), ${STRING_SHORT[v.hi]}-Saite ${fretsTxt(g.high)} (Finger ${fingering(g.high.map((p) => p.f))}). Töne: ${names} und zurück.`,
+    variant: orig ? undefined : `${v.scale.name} · ${pairName(v.lo, v.hi)} ab Bund ${v.start}`,
+    pattern: runPattern(g),
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Leichtere Variante: zwölf Achtel über sechs Schläge, danach zwei Schläge Pause.' },
+      { label: 'Minute 2', seconds: 60, sub: 4, text: 'Zwölf Sechzehntel auf den Schlägen 1–3, Pause auf 4.' },
+    ],
+    tracksTempo: true,
+    scaleId: v.scale.id,
+    root: v.scale.root,
+  };
+}
+
+function noteOf(p: Pos) {
+  const names = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'];
+  return names[fretMidi(p.s, p.f) % 12];
+}
+
+function a4(ctx: BuildCtx): Exercise {
+  const { v, orig } = choose(ctx, [
+    { shape: [0, 1, 3, 1], fing: '1–2–4–2', base: 5, hi: 5, lo: 4 },
+    { shape: [0, 2, 3, 2], fing: '1–3–4–3', base: 5, hi: 5, lo: 4 },
+    { shape: [0, 2, 4, 2], fing: '1–2–4–2 (gedehnt)', base: 5, hi: 5, lo: 4 },
+    { shape: [0, 1, 3, 1], fing: '1–2–4–2', base: 7, hi: 5, lo: 4 },
+    { shape: [0, 1, 3, 1], fing: '1–2–4–2', base: 5, hi: 4, lo: 3 },
+    { shape: [0, 2, 3, 2], fing: '1–3–4–3', base: 3, hi: 5, lo: 4 },
+  ]);
+  const grp = (s: number): Step[] => {
+    const [a, b, c, d] = v.shape.map((x) => v.base + x);
+    return [n(s, a), n(s, b, 'h'), n(s, c, 'h'), n(s, d, 'p')];
+  };
+  return {
+    key: 'A4',
+    module: 'A',
+    num: 4,
+    title: 'Legato',
+    focus: 'accuracy',
+    intro: `Nur die erste Note jeder Vierergruppe anschlagen. Finger ${v.fing}. Acht Noten als Achtel = ein 4/4-Takt. Gleich lange, ähnlich laute Töne; besonders die Pull-offs kontrollieren.`,
+    variant: orig ? undefined : `Griff ${v.fing} · Bund ${v.base} · Saiten ${pairName(v.lo, v.hi)}`,
+    pattern: [...grp(v.hi), ...grp(v.lo)],
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Achtel. Direkt wiederholen.' },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Gleiches Tempo – Lautstärke der Pull-offs angleichen.' },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function a5(ctx: BuildCtx): Exercise {
+  const { v, orig } = choose(ctx, [
+    { lo: 3, hi: 5, start: 7 },
+    { lo: 3, hi: 5, start: 5 },
+    { lo: 2, hi: 4, start: 7 },
+    { lo: 2, hi: 4, start: 5 },
+    { lo: 1, hi: 3, start: 5 },
+  ]);
+  const g = twoStringGroup(NATURAL_MINOR, v.lo, v.hi, v.start);
+  const muted = STRING_LONG[v.lo + 1];
+  return {
+    key: 'A5',
+    module: 'A',
+    num: 5,
+    title: 'Saitensprünge',
+    focus: 'accuracy',
+    intro: `${STRING_SHORT[v.lo]}-Saite: Finger ${fingering(g.low.map((p) => p.f))}; ${STRING_SHORT[v.hi]}-Saite: ${fingering(g.high.map((p) => p.f))}. Zwölf Achtel, dann zwei Klicks Pause. Die ${muted} bleibt stumm.`,
+    variant: orig ? undefined : `Sprung ${STRING_SHORT[v.lo]} → ${STRING_SHORT[v.hi]} ab Bund ${v.start}`,
+    pattern: runPattern(g),
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Zwölf Achtel, zwei Klicks Pause.' },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Gleiches Tempo. Achte darauf, dass die übersprungene Saite still bleibt.' },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function burstBars(notes: Note[], doubled: boolean): Step[] {
+  // Kontrolle: four eighths on 1-und-2-und, rest on 3 and 4 (16th grid).
+  const control: Step[] = [...notes.flatMap((x) => [x, 'hold' as const]), ...rests(8)];
+  const speed: Step[] = doubled ? [...notes, ...notes, ...rests(8)] : [...notes, ...rests(12)];
+  return [...control, ...speed];
+}
+
+function a6(ctx: BuildCtx): Exercise {
+  const { v, orig } = choose(ctx, [
+    { notes: [n(5, 5), n(5, 6), n(5, 8), n(5, 6)], fing: '1–2–4–2', label: 'd 5–6–8–6' },
+    { notes: [n(5, 5), n(5, 7), n(5, 8), n(5, 7)], fing: '1–3–4–3', label: 'd 5–7–8–7' },
+    { notes: [n(4, 6), n(4, 8), n(4, 10), n(4, 8)], fing: '1–2–4–2', label: 'A 6–8–10–8' },
+    { notes: [n(3, 5), n(3, 7), n(3, 9), n(3, 7)], fing: '1–2–4–2', label: 'F 5–7–9–7' },
+    { notes: [n(4, 8), n(5, 5), n(5, 6), n(5, 8)], fing: '4–1–2–4', label: 'A 8 → d 5–6–8 (Saitenwechsel)' },
+  ]);
+  return {
+    key: 'A6',
+    module: 'A',
+    num: 6,
+    title: 'Speed-Bursts',
+    focus: 'speed',
+    intro: `Takt „Kontrolle“: vier Achtel auf 1 und 2 und, Pause auf 3 und 4. Takt „Speed“: vier Sechzehntel auf Schlag 1, Pause auf 2–4. Takte abwechseln, Metronom nicht verändern. Kein Dauersprint. Finger ${v.fing}.`,
+    variant: orig ? undefined : v.label,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 4, text: 'Kontrolle-Takt, dann Speed-Takt – im Wechsel.', pattern: burstBars(v.notes, false) },
+      {
+        label: 'Minute 2',
+        seconds: 60,
+        sub: 4,
+        text: 'Bei sauberer Ausführung im Speed-Takt zwei Gruppen hintereinander, dann Pause auf 3 und 4.',
+        pattern: burstBars(v.notes, true),
+      },
+    ],
+    tracksTempo: true,
+    burst: true,
+  };
+}
+
+export const PHRASES: { notes: [number, number][]; label: string }[] = [
+  { notes: [[5, 8], [5, 6], [5, 5], [4, 8], [5, 10]], label: 'B♭–A♭–G–F → C' },
+  { notes: [[4, 6], [4, 8], [5, 5], [5, 6], [5, 10]], label: 'E♭–F–G–A♭ → C' },
+  { notes: [[5, 5], [4, 8], [4, 6], [4, 5], [3, 7]], label: 'G–F–E♭–D → C' },
+  { notes: [[3, 5], [3, 7], [3, 9], [4, 6], [3, 7]], label: 'B♭–C–D–E♭ → C' },
+  { notes: [[2, 8], [2, 7], [2, 5], [1, 8], [1, 5]], label: 'A♭–G–F–E♭ → C (tief)' },
+  { notes: [[5, 6], [5, 8], [5, 10], [5, 8], [5, 10]], label: 'A♭–B♭–C–B♭ → C' },
+];
+
+function a7(ctx: BuildCtx): Exercise {
+  const { v, orig } = choose(ctx, PHRASES);
+  const [p1, p2, p3, p4, target] = v.notes.map(([s, f]) => n(s, f));
+  const base: Step[] = [p1, p2, p3, p4, target, ...holds(3), ...rests(8)];
+  const vib: Step[] = [p1, p2, p3, p4, { ...target, t: '~' }, ...holds(3), ...rests(8)];
+  return {
+    key: 'A7',
+    module: 'A',
+    num: 7,
+    title: 'Solo-Phrase',
+    focus: 'creativity',
+    intro: `Die ersten vier Töne als Achtel (1 und 2 und), der Zielton C als halbe Note auf 3. Nach der Phrase einen ganzen Takt Pause.`,
+    variant: orig ? undefined : v.label,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Zielton ruhig halten.', pattern: base },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Leichtes Vibrato auf dem Zielton ergänzen.', pattern: vib },
+    ],
+    tracksTempo: false,
+  };
+}
+
+function a8(ctx: BuildCtx): Exercise {
+  const { v, orig } = choose(ctx, [
+    { pool: [[5, 5], [5, 6], [5, 8], [5, 10], [4, 5], [4, 6], [4, 8]] as [number, number][], label: 'A/d, Bund 5–10', scale: NATURAL_MINOR },
+    { pool: [[4, 6], [4, 8], [4, 10], [3, 5], [3, 7], [3, 9]] as [number, number][], label: 'F/A, Bund 5–10', scale: NATURAL_MINOR },
+    { pool: null, label: `${ctx.scale.name} auf A/d`, scale: ctx.scale },
+  ]);
+  const pool: Pos[] = v.pool
+    ? v.pool.map(([s, f]) => ({ s, f }))
+    : fretboardNotes(v.scale, 5, 10).filter((p) => p.s >= 4);
+  const dots: MapDot[] = pool.map((p) => {
+    const deg = degreeOf(v.scale, fretMidi(p.s, p.f));
+    return { ...p, kind: deg === 0 ? 'root' : v.scale !== NATURAL_MINOR && v.scale.color.includes(deg) ? 'color' : 'note' };
+  });
+  return {
+    key: 'A8',
+    module: 'A',
+    num: 8,
+    title: 'Mini-Solo',
+    focus: 'creativity',
+    intro: 'Tonvorrat, nicht als Akkord spielen. Kurze Motive aus 3–6 Tönen, nach jedem Motiv mindestens zwei Klicks Luft. Jede zweite Phrase auf C beenden. Lieber den Rhythmus einer guten Idee verändern, statt ständig neue Noten zu suchen.',
+    variant: orig ? undefined : v.label,
+    map: { from: 4, to: 11, dots, caption: 'Gold = C (Zielton)' },
+    phases: [{ label: 'Minute 1', seconds: 60, sub: 2, text: 'Frei improvisieren mit der heutigen Aufgabe.' }],
+    tracksTempo: false,
+    drone: true,
+    prompts: prompts(ctx, 1),
+    scaleId: v.scale.id,
+    root: v.scale.root,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// MODUL B · Alle sechs Saiten
+// ---------------------------------------------------------------------------
+
+function b1(ctx: BuildCtx): Exercise {
+  const { v, orig } = choose(ctx, [
+    { perm: '1234', base: 5 },
+    { perm: '1234', base: 3 },
+    { perm: '1234', base: 7 },
+    { perm: '1243', base: 5 },
+    { perm: '2134', base: 5 },
+  ]);
+  const up = permFrets(v.perm, v.base);
+  const down = [...up].reverse();
+  const ascending: Step[] = [0, 1, 2, 3, 4, 5].flatMap((s) => up.map((f) => n(s, f)));
+  const descending: Step[] = [5, 4, 3, 2, 1, 0].flatMap((s) => down.map((f) => n(s, f))).slice(1);
+  return {
+    key: 'B1',
+    module: 'B',
+    num: 1,
+    title: 'Chromatik über die Saitenbreite',
+    focus: 'speed',
+    intro: `Finger ${dash(v.perm)} auf jeder Saite. Zurück rückwärts; den obersten Ton am Wendepunkt nicht doppeln. Keine Pause zwischen den Saiten.`,
+    variant: orig ? undefined : `Fingerfolge ${dash(v.perm)} · ab Bund ${v.base}`,
+    pattern: [...ascending, ...descending, 'rest'],
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Achtel.' },
+      { label: 'Minute 2', seconds: 60, sub: 4, text: 'Bei sauberer Ausführung Sechzehntel.' },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function b2(ctx: BuildCtx): Exercise {
+  const { v, orig } = choose(ctx, [
+    { perm: '1324', base: 5, seq: [0, 2, 1, 3, 2, 4, 3, 5], seqTxt: '6 → 4 → 5 → 3 → 4 → 2 → 3 → 1' },
+    { perm: '1423', base: 5, seq: [0, 2, 1, 3, 2, 4, 3, 5], seqTxt: '6 → 4 → 5 → 3 → 4 → 2 → 3 → 1' },
+    { perm: '1324', base: 5, seq: [0, 3, 1, 4, 2, 5], seqTxt: '6 → 3 → 5 → 2 → 4 → 1' },
+    { perm: '2413', base: 5, seq: [0, 2, 1, 3, 2, 4, 3, 5], seqTxt: '6 → 4 → 5 → 3 → 4 → 2 → 3 → 1' },
+    { perm: '1324', base: 7, seq: [5, 3, 4, 2, 3, 1, 2, 0], seqTxt: '1 → 3 → 2 → 4 → 3 → 5 → 4 → 6 (von oben)' },
+  ]);
+  const up = permFrets(v.perm, v.base);
+  const down = [...up].reverse();
+  const m1: Step[] = [
+    ...[0, 1, 2, 3, 4, 5].flatMap((s) => up.map((f) => n(s, f))),
+    ...[5, 4, 3, 2, 1, 0].flatMap((s) => down.map((f) => n(s, f))),
+  ];
+  const m2 = padBar([...v.seq.flatMap((s) => up.map((f) => n(s, f))), ...rests(8)], 2);
+  return {
+    key: 'B2',
+    module: 'B',
+    num: 2,
+    title: 'Fingerfolge und Saitensprünge',
+    focus: 'accuracy',
+    intro: `Fingerfolge ${dash(v.perm)}. Saite 6 = dickste C-Saite, Saite 1 = hohe d-Saite. Die übersprungenen Saiten sollen nicht nachklingen. Langsamer als die gerade Chromatik ist hier ausdrücklich in Ordnung.`,
+    variant: orig ? undefined : `Fingerfolge ${dash(v.perm)} · ab Bund ${v.base} · Folge ${v.seqTxt}`,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: `Aufwärts ${up.join('–')}, abwärts ${down.join('–')}.`, pattern: m1 },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: `Saitenfolge ${v.seqTxt}, auf jeder Saite einmal ${up.join('–')}. Danach kurz lösen und neu beginnen.`, pattern: m2 },
+    ],
+    tracksTempo: true,
+  };
+}
+
+const B_POSITIONS = [
+  { start: 43, label: 'ab tiefem G (Bund 7)' },
+  { start: 41, label: 'ab tiefem F (Bund 5)' },
+  { start: 39, label: 'ab tiefem E♭ (Bund 3)' },
+  { start: 44, label: 'ab tiefem A♭ (Bund 8)' },
+  { start: 46, label: 'ab tiefem B♭ (Bund 10)' },
+];
+
+function minorShape(ctx: BuildCtx) {
+  const { v, orig } = choose(ctx, B_POSITIONS);
+  const path = sixStringPath(NATURAL_MINOR, v.start);
+  return { path, label: orig ? undefined : `Griffbild ${v.label}` };
+}
+
+function pathTable(path: Pos[]) {
+  return [0, 1, 2, 3, 4, 5]
+    .map((s) => {
+      const fs = path.filter((p) => p.s === s).map((p) => p.f);
+      return `${STRING_SHORT[s]} ${fs.join('–')} (${fingering(fs)})`;
+    })
+    .join(' · ');
+}
+
+function b3(_ctx: BuildCtx, shape: ReturnType<typeof minorShape>): Exercise {
+  const { up, down } = pathUpDown(shape.path);
+  const both = padBar([...up, ...down.slice(1)], 2);
+  return {
+    key: 'B3',
+    module: 'B',
+    num: 3,
+    title: 'C-Natürlich-Moll',
+    focus: 'scales',
+    intro: `Ein Griffbild über alle sechs Saiten. C als Zielton bewusst hören. Die Hand für die weitere Lage mitnehmen, nicht festklemmen. ${pathTable(shape.path)}`,
+    variant: shape.label,
+    map: scaleMap(NATURAL_MINOR, 3, 14, 'Gold = C · Türkis = A♭ (♭6)'),
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Aufwärts, oben halten und neu beginnen.', pattern: padBar([...up, 'hold', 'hold'], 2) },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Abwärts.', pattern: padBar([...down, 'hold', 'hold'], 2) },
+      { label: 'Minute 3', seconds: 60, sub: 2, text: 'Beide Richtungen ohne doppelten Wendeton verbinden.', pattern: both },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function b4(_ctx: BuildCtx, shape: ReturnType<typeof minorShape>): Exercise {
+  const { up, down } = pathUpDown(shape.path, 'legato');
+  return {
+    key: 'B4',
+    module: 'B',
+    num: 4,
+    title: 'Dasselbe als Legato',
+    focus: 'accuracy',
+    intro: 'Nur die erste Note jeder Saite anschlagen. Gleichmäßige Achtel, kein hastiges Nachziehen der beiden Legato-Töne.',
+    variant: shape.label,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Aufwärts mit Hammer-ons.', pattern: padBar([...up, 'hold', 'hold'], 2) },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Rückwärts mit Pull-offs. Jeweils den ersten Ton anschlagen.', pattern: padBar([...down, 'hold', 'hold'], 2) },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function b5(_ctx: BuildCtx, shape: ReturnType<typeof minorShape>): Exercise {
+  const group = (s: number): Note[] => {
+    const fs = shape.path.filter((p) => p.s === s).map((p) => p.f);
+    const [a, b, c] = fs;
+    return [n(s, a), n(s, b), n(s, c), n(s, b)];
+  };
+  const order = [0, 1, 2, 3, 4, 5, 4, 3, 2, 1];
+  const single = order.flatMap((s) => [...group(s), ...rests(12)]);
+  const double = order.flatMap((s) => [...group(s), ...group(s), ...rests(8)]);
+  return {
+    key: 'B5',
+    module: 'B',
+    num: 5,
+    title: 'Bursts auf jeder Saite',
+    focus: 'speed',
+    intro: 'Jede Saite einzeln: vier Sechzehntel auf Schlag 1, Pause auf 2–4. Im nächsten Takt zur nächsten Saite. Oben angekommen in umgekehrter Saitenfolge zurück.',
+    variant: shape.label,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 4, text: 'Vier schnelle Noten pro Takt.', pattern: single },
+      { label: 'Minute 2', seconds: 60, sub: 4, text: 'Wenn sauber: Gruppe zweimal direkt hintereinander; Pause auf 3 und 4.', pattern: double },
+      {
+        label: 'Minute 3',
+        seconds: 60,
+        sub: 4,
+        text: 'Schwierigste Saite auswählen und mit denselben Pausen wiederholen.',
+        pattern: double,
+        pick: {
+          label: 'Schwierigste Saite',
+          options: [5, 4, 3, 2, 1, 0].map((s) => ({ value: s, label: STRING_SHORT[s] })),
+          build: (s) => [...group(s), ...group(s), ...rests(8)],
+        },
+      },
+    ],
+    tracksTempo: true,
+    burst: true,
+  };
+}
+
+function b6(ctx: BuildCtx, shape: ReturnType<typeof minorShape>): Exercise {
+  const targets = shape.path.filter((p) => fretMidi(p.s, p.f) % 12 === 0);
+  const dots: MapDot[] = shape.path.map((p) => ({ ...p, kind: fretMidi(p.s, p.f) % 12 === 0 ? 'target' : 'note' }));
+  const rhythm = ctx.vary ? pick(ctx.rng, RHYTHM_IDEAS) : RHYTHM_IDEAS[0];
+  return {
+    key: 'B6',
+    module: 'B',
+    num: 6,
+    title: 'Mini-Solo über drei Register',
+    focus: 'creativity',
+    intro: `Nur Töne aus dem Griffbild verwenden. Den Zielton halten, optional leichtes Vibrato. Hier nicht die Geschwindigkeit messen, sondern Phrasen mit Anfang und Ende spielen. Zieltöne C: ${targets.map((t) => `${STRING_SHORT[t.s]} ${t.f}`).join(', ')}.`,
+    variant: shape.label,
+    map: { from: Math.min(...shape.path.map((p) => p.f)) - 1, to: Math.max(...shape.path.map((p) => p.f)) + 1, dots, caption: 'Gold = C-Zieltöne' },
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Je eine Phrase mit 4–6 Tönen auf dem tiefen, mittleren und hohen Saitenpaar. Nach jeder Phrase zwei Klicks Pause.' },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: `Rhythmus ${rhythm} tief, mittig und hoch wiederverwenden. Andere Töne, erkennbar dasselbe Motiv.` },
+      { label: 'Minute 3', seconds: 60, sub: 2, text: 'Phrasen abwechselnd auf den C-Zieltönen beenden.' },
+    ],
+    tracksTempo: false,
+    drone: true,
+    prompts: ctx.vary ? prompts(ctx, 1) : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// SKALA · ein Block über mehrere Tage; jeder neue Block bringt eine neue Skala
+// mit neuem Grundton. Tag 1 lernen, mittlere Tage vertiefen, letzter Tag
+// abrufen, transponieren, benutzen. (Aufbau wie Modul C aus dem Heft.)
+// ---------------------------------------------------------------------------
+
+const octaveText = (o: Pos[]) => `${STRING_DAT[o[0].s]} (Bund ${o[0].f}–${o[o.length - 1].f})`;
+const positionText = (p: Pos[]) => (p[0].f === 0 ? 'in der offenen Lage' : `ab Bund ${p[0].f}`);
+
+/** Groups of `size` consecutive notes along a path: 1-2-3, 2-3-4, … */
+function sequence(path: Pos[], size: number): Step[] {
+  const out: Step[] = [];
+  for (let i = 0; i + size <= path.length; i++) out.push(...path.slice(i, i + size).map((p) => n(p.s, p.f)));
+  return out;
+}
+
+/** Thirds along a path: 1-3, 2-4, 3-5, … */
+function thirds(path: Pos[]): Step[] {
+  const out: Step[] = [];
+  for (let i = 0; i + 2 < path.length; i++) out.push(n(path[i].s, path[i].f), n(path[i + 2].s, path[i + 2].f));
+  return out;
+}
+
+function scaleListen(sc: ScaleDef, map: FretMap): Exercise {
+  const r = noteName(sc.root);
+  return {
+    key: 'C1',
+    module: 'C',
+    num: 1,
+    title: 'Hören',
+    focus: 'scales',
+    intro: `Tiefes ${r} als gehaltener Klang (Drone). ${sc.ref ? `Zuerst den ${sc.ref.name}-Vergleichston, dann den charakteristischen Ton der Skala spielen. ` : ''}${r} immer wieder als Ruhepunkt hören.`,
+    map,
+    phases: [{ label: '2 Minuten', seconds: 120, sub: 2, text: sc.listen, widget: 'listen', metronome: false }],
+    tracksTempo: false,
+    drone: true,
+    scaleId: sc.id,
+    root: sc.root,
+  };
+}
+
+function scaleFind(sc: ScaleDef, map: FretMap, path: Pos[]): Exercise {
+  const r = noteName(sc.root);
+  const { up, down } = pathUpDown(path);
+  const octave = oneStringOctave(sc);
+  const oUp = octave.map((p) => n(p.s, p.f));
+  return {
+    key: 'C2',
+    module: 'C',
+    num: 2,
+    title: 'Finden',
+    focus: 'scales',
+    intro: 'Alle Noten gleichmäßig als Achtel. Kein Tempo-Ziel für diesen Block. Langsam spielen und die Hand passend mitverschieben.',
+    map,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: `Die Ein-Saiten-Oktave auf der ${octaveText(octave)}: ${r} bis ${r} und zurück.`, pattern: padBar([...oUp, ...[...oUp].reverse().slice(1)], 2) },
+      { label: 'Minute 2–3', seconds: 120, sub: 2, text: `Das Sechs-Saiten-Griffbild ${positionText(path)} in beide Richtungen.`, pattern: padBar([...up, ...down.slice(1)], 2) },
+      { label: 'Minute 4', seconds: 60, sub: 2, text: 'Griffbild abgedeckt: auf drei Saiten Grundton und Farbton suchen.', widget: 'find', hideMap: true, metronome: false },
+    ],
+    tracksTempo: false,
+    scaleId: sc.id,
+    root: sc.root,
+  };
+}
+
+function scaleSequences(sc: ScaleDef, map: FretMap, path: Pos[]): Exercise {
+  return {
+    key: 'C6',
+    module: 'C',
+    num: 6,
+    title: 'Sequenzen',
+    focus: 'scales',
+    intro: 'Sequenzen machen aus der Tonleiter Musik: immer einen Ton weiter, dieselbe Figur. So lernst du das Griffbild in Stücken statt nur von unten nach oben. Langsam und gleichmäßig.',
+    map,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 3, text: 'Dreiergruppen aufwärts als Triolen: 1-2-3, 2-3-4, 3-4-5 …', pattern: padBar(sequence(path, 3), 3) },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Vierergruppen aufwärts als Achtel: 1-2-3-4, 2-3-4-5 …', pattern: padBar(sequence(path, 4), 2) },
+      { label: 'Minute 3', seconds: 60, sub: 2, text: 'Terzen: jeweils einen Skalenton überspringen – 1-3, 2-4, 3-5 …', pattern: padBar(thirds(path), 2) },
+    ],
+    tracksTempo: false,
+    scaleId: sc.id,
+    root: sc.root,
+  };
+}
+
+function scaleSecondPosition(sc: ScaleDef, path: Pos[]): Exercise {
+  const r = noteName(sc.root);
+  const path2 = secondPosition(sc);
+  const p1 = pathUpDown(path);
+  const p2 = pathUpDown(path2);
+  return {
+    key: 'C7',
+    module: 'C',
+    num: 7,
+    title: 'Zweite Lage',
+    focus: 'scales',
+    intro: `Dieselbe Skala ${positionText(path2)}, diesmal ab dem Grundton ${r} auf der tiefen Saite. Zwei Lagen, die sich überlappen, decken schon einen großen Teil des Griffbretts ab.`,
+    map: mapAround(sc, [...path, ...path2]),
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: `Zweite Lage ${positionText(path2)}: aufwärts und abwärts.`, pattern: padBar([...p2.up, ...p2.down.slice(1)], 2) },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: `Lagen verbinden: in Lage 1 (${positionText(path)}) aufwärts, in Lage 2 abwärts.`, pattern: padBar([...p1.up, ...p2.down], 2) },
+      { label: 'Minute 3', seconds: 60, sub: 2, text: `Alle ${r} in beiden Lagen suchen und laut benennen. Dann eine kurze Phrase, die in Lage 1 beginnt und in Lage 2 endet.`, metronome: false },
+    ],
+    tracksTempo: false,
+    scaleId: sc.id,
+    root: sc.root,
+  };
+}
+
+function scaleRecall(sc: ScaleDef, map: FretMap): Exercise {
+  return {
+    key: 'C5',
+    module: 'C',
+    num: 5,
+    title: 'Abrufen',
+    focus: 'accuracy',
+    intro: `Karte abdecken: die ${sc.intervals.length} Töne nennen, Ein-Saiten-Oktave spielen, anschließend eine kurze Phrase. Unsichere Stellen nachsehen und einmal korrekt wiederholen.`,
+    map,
+    phases: [{ label: '2 Minuten', seconds: 120, sub: 2, text: 'Noten der Skala aus dem Kopf antippen, dann spielen.', widget: 'recall', hideMap: true, metronome: false }],
+    tracksTempo: false,
+    scaleId: sc.id,
+    root: sc.root,
+  };
+}
+
+function scaleTranspose(sc: ScaleDef, path: Pos[]): Exercise {
+  const t = getScale(sc.id, sc.root + 5);
+  const tp = sixStringPath(t);
+  const { up, down } = pathUpDown(tp);
+  const octave = oneStringOctave(t);
+  const oUp = octave.map((p) => n(p.s, p.f));
+  const shift = tp[0].f - path[0].f;
+  return {
+    key: 'C8',
+    module: 'C',
+    num: 8,
+    title: 'Transponieren',
+    focus: 'scales',
+    intro: `Gleiches Griffbild, neuer Grundton: ${t.name}. Die Form bleibt – sie beginnt nur ${Math.abs(shift)} Bünde ${shift > 0 ? 'höher' : 'tiefer'} (Bund ${tp[0].f} statt ${path[0].f}). So funktioniert jede Skala in jeder Tonart.`,
+    map: mapAround(t, tp),
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: `${t.name}: das Sechs-Saiten-Griffbild ${positionText(tp)} auf- und abwärts.`, pattern: padBar([...up, ...down.slice(1)], 2) },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: `Ein-Saiten-Oktave auf der ${octaveText(octave)}: ${noteName(t.root)} bis ${noteName(t.root)}.`, pattern: padBar([...oUp, ...[...oUp].reverse().slice(1)], 2) },
+    ],
+    tracksTempo: false,
+    drone: true,
+    scaleId: t.id,
+    root: t.root,
+  };
+}
+
+function scaleMusic(ctx: BuildCtx, path: Pos[]): Exercise {
+  const sc = ctx.scale;
+  const motif: Step[] = sc.motif.map(([s, f]) => n(s, f));
+  return {
+    key: 'C4',
+    module: 'C',
+    num: 4,
+    title: 'Musik',
+    focus: 'creativity',
+    intro: `Mini-Motiv: ${sc.motifText}. Die Zahlen sind eine aufeinanderfolgende Melodie, keine Akkordgriffe. Ziel: den Farbton hören und bewusst einsetzen.`,
+    map: mapAround(sc, [...path, ...sc.motif.map(([s, f]) => ({ s, f }))]),
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Motiv von der Karte spielen – erst frei, dann im klaren Achtelrhythmus.', pattern: padBar([...motif, 'hold', 'hold'], 2), metronome: false },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: `Eigene Antwort mit 3–6 Tönen erfinden; ${noteName(sc.root)} als Zielton, Pausen lassen.`, metronome: false },
+    ],
+    tracksTempo: false,
+    drone: true,
+    prompts: prompts(ctx, 1),
+    scaleId: sc.id,
+    root: sc.root,
+  };
+}
+
+/** The scale block of the day: 6 minutes, depending on the day within the block. */
+export function scaleBlock(ctx: BuildCtx): Exercise[] {
+  const sc = ctx.scale;
+  const path = sixStringPath(sc);
+  const map = mapAround(sc, path);
+  switch (ctx.stage ?? 'learn') {
+    case 'learn':
+      return [scaleListen(sc, map), scaleFind(sc, map, path)];
+    case 'deepen':
+      return [scaleSequences(sc, map, path), scaleSecondPosition(sc, path)];
+    case 'apply':
+      return [scaleRecall(sc, map), scaleTranspose(sc, path), scaleMusic(ctx, path)];
+  }
+}
+
+export function moduleA(ctx: BuildCtx): Exercise[] {
+  return [a1(ctx), a2(ctx), a3(ctx), a4(ctx), a5(ctx), a6(ctx), a7(ctx), a8(ctx)];
+}
+
+export function moduleB(ctx: BuildCtx): Exercise[] {
+  const shape = minorShape(ctx);
+  return [b1(ctx), b2(ctx), b3(ctx, shape), b4(ctx, shape), b5(ctx, shape), b6(ctx, shape)];
+}
+
+// ---------------------------------------------------------------------------
+// MODUL D · Polyrhythmus (nicht aus dem Heft)
+// The click keeps the beat; the guitar plays the other layer. "Hören" phases
+// let the metronome play that layer too, as a second, lower click.
+// ---------------------------------------------------------------------------
+
+/** Tiefes C (Saite 6 offen) and the C an octave up (Saite 4 offen). */
+const LOW_C = n(0, 0);
+const MID_C = n(2, 0);
+
+/** A note every `every` steps over `len` steps, held until the next (or short, palm-muted). */
+function pulse(len: number, every: number, note: Note, ring = true): Step[] {
+  return Array.from({ length: len }, (_, i) => (i % every === 0 ? note : ring ? 'hold' : 'rest'));
+}
+
+/** Every grid step played: the counter-rhythm on the low C, the steps between on the octave. */
+function grid(len: number, every: number): Step[] {
+  return Array.from({ length: len }, (_, i) => (i % every === 0 ? LOW_C : MID_C));
+}
+
+/** A riff group (frets on the low C string) repeated 16 times, so it lands on the "1" again. */
+const groups = (frets: number[]): Step[] => Array.from({ length: 16 }, () => frets.map((f) => n(0, f))).flat();
+
+function d1(): Exercise {
+  return {
+    key: 'D1',
+    module: 'D',
+    num: 1,
+    title: '3 gegen 2',
+    focus: 'accuracy',
+    intro:
+      'Der Klick spielt die Zwei (Viertel), du spielst die Drei: drei gleich lange Töne auf zwei Schläge. Zählen in Triolen „1 t l 2 t l“ – die Drei liegt auf 1, l, t. Tiefes C = Saite 6 offen, hohes C = Saite 4 offen, Wechselschlag.',
+    phases: [
+      { label: 'Hören', seconds: 60, sub: 3, text: 'Der zweite, tiefere Klick spielt die Drei. Erst zuhören und mitklatschen, dann mitspielen.', pattern: pulse(12, 2, LOW_C), layer: true },
+      {
+        label: 'Raster',
+        seconds: 60,
+        sub: 3,
+        text: 'Alle Triolen-Achtel durchspielen: jede zweite Note auf dem tiefen C (= die Drei), die Noten dazwischen leise auf dem hohen C. Der Klick fällt abwechselnd auf tief und hoch.',
+        pattern: grid(12, 2),
+      },
+      { label: 'Nur die Drei', seconds: 60, sub: 3, text: 'Zwischentöne weglassen – nur die Drei gegen den Klick. Innerlich weiter in Triolen zählen.', pattern: pulse(12, 2, LOW_C) },
+      { label: 'Wechsel', seconds: 60, sub: 3, text: 'Takt 1 die Drei, Takt 2 die Zwei (mit dem Klick) – im Wechsel, ohne Pause.', pattern: [...pulse(12, 2, LOW_C), ...pulse(12, 3, LOW_C)] },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function d2(): Exercise {
+  return {
+    key: 'D2',
+    module: 'D',
+    num: 2,
+    title: '2 und 4 gegen 3',
+    focus: 'accuracy',
+    intro: 'Dreivierteltakt: der Klick spielt drei Schläge pro Takt. Du teilst den Takt in zwei, dann in vier gleich lange Töne. Alles auf dem tiefen C (Saite 6 offen).',
+    phases: [
+      { label: 'Hören 2:3', seconds: 60, sub: 2, beats: 3, text: 'Zwei Töne pro Takt (punktierte Viertel). Erst zuhören, dann mitspielen.', pattern: pulse(6, 3, LOW_C), layer: true },
+      { label: 'Spielen 2:3', seconds: 60, sub: 2, beats: 3, text: 'In Achteln mitzählen „1 + 2 + 3 +“ – die Töne kommen auf 1 und auf 2+.', pattern: pulse(6, 3, LOW_C) },
+      { label: 'Hören 4:3', seconds: 60, sub: 4, beats: 3, text: 'Vier Töne pro Takt (punktierte Achtel). Erst zuhören, dann mitspielen.', pattern: pulse(12, 3, LOW_C), layer: true },
+      { label: 'Spielen 4:3', seconds: 60, sub: 4, beats: 3, text: 'In Sechzehnteln mitzählen – jeder dritte Sechzehntel ist ein Ton.', pattern: pulse(12, 3, LOW_C) },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function d3(): Exercise {
+  return {
+    key: 'D3',
+    module: 'D',
+    num: 3,
+    title: '3 gegen 4',
+    focus: 'accuracy',
+    intro: 'Der Klick spielt vier Viertel, du spielst drei gleich lange Töne pro Takt (Halbe-Triolen). Gerüst: zwölf Triolen-Achtel pro Takt, jede vierte ist ein Ton der Drei.',
+    phases: [
+      { label: 'Hören', seconds: 60, sub: 3, text: 'Der tiefere Klick spielt die Drei. Zuhören, mitklatschen, dann mitspielen.', pattern: pulse(12, 4, LOW_C), layer: true },
+      {
+        label: 'Raster',
+        seconds: 60,
+        sub: 3,
+        text: 'Alle Triolen-Achtel durchspielen: jede vierte auf dem tiefen C (Saite 6), die anderen leise auf dem hohen C (Saite 4).',
+        pattern: grid(12, 4),
+      },
+      { label: 'Nur die Drei', seconds: 60, sub: 3, text: 'Nur noch die Drei gegen den Klick – Töne klingen lassen.', pattern: pulse(12, 4, LOW_C) },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function d4(ctx: BuildCtx): Exercise {
+  const { v, orig } = choose(ctx, [
+    { three: [0, 3, 5], threeTxt: 'C–E♭–F', fing: 'offen–1–3', five: [0, 0, 3, 0, 5], fiveTxt: 'C–C–E♭–C–F' },
+    { three: [0, 1, 3], threeTxt: 'C–D♭–E♭', fing: 'offen–1–3', five: [0, 0, 1, 0, 3], fiveTxt: 'C–C–D♭–C–E♭' },
+    { three: [0, 3, 6], threeTxt: 'C–E♭–G♭', fing: 'offen–1–4', five: [0, 0, 3, 0, 6], fiveTxt: 'C–C–E♭–C–G♭' },
+  ]);
+  return {
+    key: 'D4',
+    module: 'D',
+    num: 4,
+    title: 'Dreier- und Fünfergruppen',
+    focus: 'speed',
+    intro: `Metal-Polyrhythmus: der Klick bleibt im 4/4, deine Gruppe läuft in Sechzehnteln darüber und verschiebt sich gegen die Eins. Alles auf der tiefen C-Saite mit Palm-Mute, Finger ${v.fing}. Die erste Note jeder Gruppe betonen.`,
+    variant: orig ? undefined : `Gruppe ${v.threeTxt}`,
+    phases: [
+      { label: 'Chugs', seconds: 60, sub: 4, text: 'Alle drei Sechzehntel ein kurzer Chug auf dem tiefen C. Nach drei Takten trifft er wieder die Eins. Der zweite Klick spielt erst mit.', pattern: pulse(48, 3, LOW_C, false), layer: true },
+      { label: 'Dreiergruppe', seconds: 60, sub: 4, text: `Gruppe ${v.threeTxt} durchgehend – nach drei Takten wieder auf der Eins.`, pattern: groups(v.three) },
+      { label: 'Fünfergruppe', seconds: 60, sub: 4, text: `Gruppe ${v.fiveTxt} durchgehend – nach fünf Takten wieder auf der Eins.`, pattern: groups(v.five) },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function d5(ctx: BuildCtx): Exercise {
+  const task = ctx.vary
+    ? pick(ctx.rng, ['Dreiergruppe aus zwei Tönen', 'Fünfergruppe mit Pause am Ende', 'Gruppe 3 + 3 + 2 (Tresillo)', 'Siebenergruppe'])
+    : 'Dreiergruppe aus zwei Tönen';
+  return {
+    key: 'D5',
+    module: 'D',
+    num: 5,
+    title: 'Eigenes Polyrhythmus-Riff',
+    focus: 'creativity',
+    intro: 'Ein eigenes Riff auf den tiefen Saiten, das sich gegen den 4/4-Klick verschiebt. Die Gruppe beibehalten, nur Töne und Betonungen verändern. Zählen, wann es wieder auf der Eins landet.',
+    phases: [{ label: 'Minute 1', seconds: 60, sub: 4, text: 'Frei spielen mit der heutigen Aufgabe.' }],
+    tracksTempo: false,
+    prompts: [`Heute: ${task}.`],
+  };
+}
+
+export function moduleD(ctx: BuildCtx): Exercise[] {
+  return [d1(), d2(), d3(), d4(ctx), d5(ctx)];
+}
+
+// ---------------------------------------------------------------------------
+// E · Zusatz-Technik (nicht aus dem Heft): Tremolo, Lagenwechsel, Oktaven,
+// Griffbrett-Kenntnis. Im Grundton des Tages, wo es um Töne geht.
+// ---------------------------------------------------------------------------
+
+function e1(ctx: BuildCtx): Exercise {
+  const sc = ctx.scale;
+  // Four scale notes on the high d string from the tonic – upwards, or downwards where upwards runs out of frets.
+  const up = (f: number) => scaleRun(sc, fretMidi(5, f), 4).map((m) => m - TUNING[5]);
+  const down = (f: number) => {
+    const out = [f];
+    for (let x = f - 1; out.length < 4; x--) if (scaleRun(sc, fretMidi(5, x), 1)[0] === fretMidi(5, x)) out.push(x);
+    return out;
+  };
+  const low = midiToPc(sc.root - TUNING[5]);
+  const frets = [up(low), down(low), down(low + 12)].find((fs) => fs.every((f) => f >= 0 && f <= 17))!;
+  const rootFret = frets[0];
+  return {
+    key: 'E1',
+    module: 'E',
+    num: 1,
+    title: 'Tremolo-Picking',
+    focus: 'speed',
+    intro: `Durchgehende Sechzehntel im Wechselschlag auf der hohen d-Saite. Die Bewegung kommt aus dem Handgelenk, nicht aus dem Arm – klein und locker. Grundton ${noteName(sc.root)} = Bund ${rootFret}.`,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 4, text: `Tremolo auf einem Ton: ${noteName(sc.root)}, gleichmäßig laut.`, pattern: Array.from({ length: 16 }, () => n(5, rootFret)) },
+      {
+        label: 'Minute 2',
+        seconds: 60,
+        sub: 4,
+        text: `Tremolo-Melodie ${frets.join('–')}: auf jedem Schlag ein neuer Ton, die Anschlaghand läuft ohne Stocken weiter.`,
+        pattern: frets.flatMap((f) => [n(5, f), n(5, f), n(5, f), n(5, f)]),
+      },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function e2(ctx: BuildCtx): Exercise {
+  const { v: s, orig } = choose(ctx, [4, 5, 3, 2]);
+  const ladder = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const jump = [5, 6, 7, 8, 12, 13, 14, 15];
+  return {
+    key: 'E2',
+    module: 'E',
+    num: 2,
+    title: 'Lagenwechsel',
+    focus: 'accuracy',
+    intro: `Eine Saite, Finger 1–2–3–4 pro Lage. Beim Wechsel springt die ganze Hand, der Zeigefinger landet genau auf dem neuen Bund – ohne Rutschgeräusch und ohne Pause. Saite: ${STRING_LONG[s]}.`,
+    variant: orig ? undefined : `auf der ${STRING_DAT[s]}`,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Alle vier Töne eine Lage weiter: Bund 1–4, 5–8, 9–12 und zurück.', pattern: [...ladder, ...[...ladder].reverse()].map((f) => n(s, f)) },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Großer Sprung: Bund 5–8, dann direkt 12–15 und zurück. Den Zielbund vorher anschauen, dann ohne Hinsehen treffen.', pattern: [...jump, ...[...jump].reverse()].map((f) => n(s, f)) },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function e3(ctx: BuildCtx): Exercise {
+  const sc = ctx.scale;
+  const steps = sc.intervals.slice(0, 4);
+  const lowA = midiToPc(sc.root - TUNING[0]);
+  // Octave on the low and middle C string (same fret), or G string + F string (two frets up).
+  const shape = lowA + steps[3] <= 16 ? { lo: 0, hi: 2, base: lowA, up: 0 } : { lo: 1, hi: 3, base: midiToPc(sc.root - TUNING[1]), up: 2 };
+  const pair = (k: number): Step[] => [n(shape.lo, shape.base + steps[k]), n(shape.hi, shape.base + steps[k] + shape.up)];
+  const names = steps.map((i) => noteName(sc.root + i)).join('–');
+  return {
+    key: 'E3',
+    module: 'E',
+    num: 3,
+    title: 'Oktaven',
+    focus: 'accuracy',
+    intro:
+      (shape.lo === 0
+        ? 'Oktavgriff in Drop C: Ton auf der tiefen C-Saite, die Oktave im selben Bund auf der mittleren C-Saite. Die G-Saite dazwischen mit dem Zeigefinger abdämpfen.'
+        : 'Oktavgriff: Ton auf der G-Saite, die Oktave zwei Bünde höher auf der F-Saite. Die mittlere C-Saite dazwischen abdämpfen.') +
+      ` Töne: ${names} aus ${sc.name}. Erst gebrochen spielen, später gern beide Töne zusammen.`,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: `Gebrochene Oktaven aufwärts und abwärts: ${names}.`, pattern: [0, 1, 2, 3, 3, 2, 1, 0].flatMap(pair) },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Sprünge 1-3-2-4 und zurück – die Hand landet ohne Hinsehen auf dem richtigen Bund.', pattern: [0, 2, 1, 3, 3, 1, 2, 0].flatMap(pair) },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function e4(ctx: BuildCtx): Exercise {
+  const sc = ctx.scale;
+  return {
+    key: 'E4',
+    module: 'E',
+    num: 4,
+    title: 'Griffbrett-Treffer',
+    focus: 'accuracy',
+    intro: `Die App nennt einen Ton aus ${sc.name} und eine Saite – du findest ihn so schnell wie möglich. Mit Mikrofon prüft die App selbst. Wer die Töne auf dem Griffbrett kennt, verliert sich in keiner Tonart.`,
+    phases: [{ label: '2 Minuten', seconds: 120, sub: 2, text: 'Ton finden, spielen, laut benennen. Gezählt wird der erste Versuch.', widget: 'notes', metronome: false }],
+    tracksTempo: false,
+    scaleId: sc.id,
+    root: sc.root,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// R · Rhythmus & Timing: Palm-Mute-Riffs auf dem Grundton des Tages.
+// ---------------------------------------------------------------------------
+
+/** A note every `k` steps, short (palm-muted) in between. */
+const every = (len: number, k: number, note: Note): Step[] => Array.from({ length: len }, (_, i) => (i % k === 0 ? note : 'rest'));
+const times = (k: number, steps: Step[]): Step[] => Array.from({ length: k }, () => steps).flat();
+
+function rootChug(ctx: BuildCtx) {
+  const f = midiToPc(ctx.scale.root - TUNING[0]);
+  return { f, r: noteName(ctx.scale.root), low: n(0, f), fifth: n(1, f), oct: n(2, f) };
+}
+
+function r1(ctx: BuildCtx): Exercise {
+  const { r, low } = rootChug(ctx);
+  return {
+    key: 'R1',
+    module: 'R',
+    num: 1,
+    title: 'Unterteilungen',
+    focus: 'rhythm',
+    intro: `Palm-Mute auf dem tiefen ${r}: Handballen leicht auf den Saiten am Steg. Der Klick bleibt gleich, nur die Unterteilung ändert sich. Laut mitzählen hilft.`,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 4, text: 'Je ein Takt Viertel, Achtel, Sechzehntel, Achtel – ohne Pause dazwischen.', pattern: [...every(16, 4, low), ...every(16, 2, low), ...every(16, 1, low), ...every(16, 2, low)] },
+      { label: 'Minute 2', seconds: 60, sub: 3, text: 'Viertel und Triolen im Wechsel. Zählen: „1 t l 2 t l“.', pattern: [...every(12, 3, low), ...every(12, 1, low)] },
+      { label: 'Minute 3', seconds: 60, sub: 4, text: 'Rückwärts: Sechzehntel, Achtel, Viertel, Achtel. Der Puls darf beim Wechsel nicht wackeln.', pattern: [...every(16, 1, low), ...every(16, 2, low), ...every(16, 4, low), ...every(16, 2, low)] },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function r2(ctx: BuildCtx): Exercise {
+  const { r, f, low, fifth, oct } = rootChug(ctx);
+  const gallop = (x: Note): Step[] => [x, 'rest', x, x];
+  const reverse = (x: Note): Step[] => [x, x, x, 'rest'];
+  return {
+    key: 'R2',
+    module: 'R',
+    num: 2,
+    title: 'Gallop',
+    focus: 'rhythm',
+    intro: `Der Metal-Klassiker: eine Achtel und zwei Sechzehntel pro Schlag („Ta-ka-ta“). Palm-Mute auf dem tiefen ${r} (Bund ${f}); Abschlag – Abschlag – Aufschlag oder alles im Wechselschlag.`,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 4, text: 'Gallop: Achtel + zwei Sechzehntel auf jedem Schlag.', pattern: times(8, gallop(low)) },
+      { label: 'Minute 2', seconds: 60, sub: 4, text: 'Umgekehrter Gallop: zwei Sechzehntel + Achtel.', pattern: times(8, reverse(low)) },
+      {
+        label: 'Minute 3',
+        seconds: 60,
+        sub: 4,
+        text: `Riff: zwei Schläge auf dem tiefen ${r}, dann Quinte (G-Saite) und Oktave (mittlere C-Saite) – im selben Bund.`,
+        pattern: times(2, [...gallop(low), ...gallop(low), ...gallop(fifth), ...gallop(oct)]),
+      },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function r3(ctx: BuildCtx): Exercise {
+  const { r, low } = rootChug(ctx);
+  const at = (len: number, hits: number[]): Step[] => Array.from({ length: len }, (_, i) => (hits.includes(i) ? low : 'rest'));
+  return {
+    key: 'R3',
+    module: 'R',
+    num: 3,
+    title: 'Offbeats & Synkopen',
+    focus: 'rhythm',
+    intro: `Töne zwischen den Klicks. Die Anschlaghand läuft trotzdem durchgehend weiter (Luftschläge auf den Pausen) – dann sitzen die Synkopen von allein. Palm-Mute auf dem tiefen ${r}.`,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Nur auf „und“ spielen – auf den Klicks Pause (Aufschlag).', pattern: times(8, ['rest', low]) },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Tresillo 3 + 3 + 2: Töne auf 1, auf „2 und“ und auf 4.', pattern: times(2, at(8, [0, 3, 6])) },
+      { label: 'Minute 3', seconds: 60, sub: 4, text: 'Sechzehntel-Synkope 3 + 3 + 3 + 3 + 4 – typisches Metal-Riff-Raster.', pattern: times(2, at(16, [0, 3, 6, 9, 12])) },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function r4(ctx: BuildCtx): Exercise {
+  const { r, low } = rootChug(ctx);
+  return {
+    key: 'R4',
+    module: 'R',
+    num: 4,
+    title: 'Stopps & Abdämpfen',
+    focus: 'rhythm',
+    intro: `Pausen sind Teil des Riffs. Zum Abdämpfen die Greifhand leicht lösen und die Anschlaghand auf die Saiten legen – exakt auf dem Schlag, ohne Nachklingen. Tiefes ${r}.`,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Auf 1 und 3 anschlagen, auf 2 und 4 exakt stoppen.', pattern: times(2, [low, 'hold', 'rest', 'rest', low, 'hold', 'rest', 'rest']) },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Kurze Stopps im Achtelraster: „1 und – – 3 – 4 –“.', pattern: times(2, [low, low, 'rest', 'rest', low, 'rest', low, 'rest']) },
+      { label: 'Minute 3', seconds: 60, sub: 2, text: 'Ein Takt Achtel, im nächsten nur die Eins – danach absolute Stille bis zur nächsten Eins.', pattern: [...times(8, [low]), low, ...rests(7)] },
+    ],
+    tracksTempo: true,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// K · Akkordfolge des Tages (in der Tonart der Skala) und
+// I · Anwenden: über genau diese Folge mit der Skala improvisieren.
+// ---------------------------------------------------------------------------
+
+const VOICING_TEXT: Record<Voicing, string> = {
+  power: 'Powerchords: In Drop C greift ein Finger quer über die drei tiefen Saiten – Grundton, Quinte, Oktave. Die übrigen Saiten mit der Greifhand dämpfen.',
+  'power-mix':
+    'Powerchords mit kurzen Wegen: Der Grundton liegt auf der tiefen C-, der G- oder der mittleren C-Saite – je nachdem, was näher liegt. Grundton auf der G-Saite: Quinte und Oktave zwei Bünde höher auf mittlerer C- und F-Saite. Grundton auf der mittleren C-Saite: Quinte zwei Bünde höher (F-Saite), Oktave drei Bünde höher (A-Saite).',
+  triad: 'Dreiklänge auf F-, A- und d-Saite (wie G-, H- und e-Saite in Standardstimmung). Genau drei Töne, die tiefen Saiten bleiben stumm. Angezeigt ist jeweils der Griff, der dem vorigen am nächsten liegt.',
+};
+
+function chordPhase(label: string, slots: ChordSlot[], beatsPer: number, text: string, opts: { backing?: boolean; hide?: boolean } = {}): Phase {
+  return { label, seconds: 120, sub: 2, text, chords: { slots, beatsPer, hide: opts.hide }, backing: opts.backing };
+}
+
+function k1(ctx: BuildCtx): Exercise {
+  const prog = ctx.progression ?? [];
+  const v = (x: Voicing) => voiceProgression(prog, x);
+  const stage = ctx.stage ?? 'learn';
+  const phases: Phase[] =
+    stage === 'learn'
+      ? [
+          chordPhase('Kennenlernen', v('power'), 8, 'Jeder Akkord zwei Takte, auf jeden Schlag einmal anschlagen. Vor dem Wechsel schon an den nächsten Griff denken.'),
+          chordPhase('Im Takt', v('power'), 4, 'Ein Takt pro Akkord, Achtel mit Palm-Mute. Gewechselt wird genau auf der Eins.'),
+          chordPhase('Mitspielen', v('power'), 4, 'Die App spielt die Folge mit. Klingt dein Akkord mit der Begleitung zusammen?', { backing: true }),
+        ]
+      : stage === 'deepen'
+        ? [
+            chordPhase('Dreiklänge', v('triad'), 8, 'Dieselbe Folge als Dreiklänge oben. Jeden Griff erst einzeln klingen lassen – alle drei Töne müssen hörbar sein.'),
+            chordPhase('Im Takt', v('triad'), 4, 'Ein Takt pro Akkord, Viertel anschlagen. Finger, die liegen bleiben können, liegen lassen.'),
+            chordPhase('Schnelle Wechsel', v('triad'), 2, 'Halber Takt pro Akkord, mit Begleitung.', { backing: true }),
+          ]
+        : [
+            chordPhase('Kurze Wege', v('power-mix'), 4, 'Powerchords mit wechselnder Grundton-Saite – die Hand bleibt in einer Lage, statt über den Hals zu springen.'),
+            chordPhase('Auswendig', v('triad'), 4, 'Griffe abgedeckt: die Dreiklänge aus dem Kopf. Nur bei Unsicherheit aufdecken.', { hide: true }),
+            chordPhase('Groove', v('power-mix'), 2, 'Zwei Schläge pro Akkord, Achtel-Palm-Mute, Akzent auf jedem Wechsel. Mit Begleitung.', { backing: true }),
+          ];
+  const first = stage === 'deepen' ? 'triad' : stage === 'apply' ? 'power-mix' : 'power';
+  return {
+    key: 'K1',
+    module: 'K',
+    num: 1,
+    title: 'Akkordfolge',
+    focus: 'chords',
+    intro: `${romanText(prog)} in ${noteName(ctx.scale.root)}: ${namesText(prog)}. Die römischen Zahlen zeigen die Stufen – dieselbe Folge klingt in jeder Tonart gleich. ${VOICING_TEXT[first]}`,
+    phases,
+    tracksTempo: true,
+  };
+}
+
+function i1(ctx: BuildCtx): Exercise {
+  const sc = ctx.scale;
+  const prog = ctx.progression ?? [];
+  // Backing: triads on top plus the chord root on the low string.
+  const slots = voiceProgression(prog, 'triad').map((sl) => ({ ...sl, midis: [TUNING[0] + midiToPc(sl.pcs[0] - TUNING[0]), ...sl.midis] }));
+  const chords = { slots, beatsPer: 4, highlight: true };
+  const path = sixStringPath(sc);
+  return {
+    key: 'I1',
+    module: 'I',
+    num: 1,
+    title: 'Improvisieren',
+    focus: 'creativity',
+    intro: `Jetzt kommt alles zusammen: ${sc.name} über ${namesText(prog)}. Die App spielt die Akkorde, du improvisierst im Griffbild der Skala. Ziel sind Phrasen, die auf Tönen des aktuellen Akkords landen.`,
+    map: mapAround(sc, path, `Gold = Grundton ${noteName(sc.root)} · Türkis = Töne des aktuellen Akkords`),
+    phases: [
+      {
+        label: 'Akkordtöne',
+        seconds: 60,
+        sub: 2,
+        text: 'Auf jeder Eins einen Ton des aktuellen Akkords (türkis) spielen und klingen lassen. Dazwischen frei – zum Wechsel wieder auf einem Akkordton landen.',
+        chords,
+        backing: true,
+      },
+      { label: 'Frei', seconds: 120, sub: 2, text: 'Eigene Phrasen über die Begleitung. Pausen gehören dazu.', chords, backing: true },
+    ],
+    tracksTempo: false,
+    prompts: prompts(ctx, 1),
+    scaleId: sc.id,
+    root: sc.root,
+  };
+}
+
+export const MODULE_INFO = {
+  A: { name: 'Zwei hohe Saiten', short: 'Kontrolle, Legato, Bursts, Phrasen' },
+  B: { name: 'Alle sechs Saiten', short: 'Saitenwechsel, Sprünge, C-Moll-Griffbild' },
+  C: { name: 'Skalen verstehen', short: 'Hören, finden, benutzen' },
+  D: { name: 'Polyrhythmus', short: '3:2, 2:3, 4:3, 3:4, Gruppen über 4/4' },
+  E: { name: 'Zusatz-Technik', short: 'Tremolo, Lagenwechsel, Oktaven, Griffbrett' },
+  R: { name: 'Rhythmus', short: 'Unterteilungen, Gallop, Synkopen, Stopps' },
+  K: { name: 'Akkorde', short: 'Powerchords und Dreiklänge' },
+  I: { name: 'Improvisation', short: 'Über die Akkordfolge spielen' },
+} as const;
+
+/** The daily 30 minutes, in playing order. */
+export const BLOCK_INFO: Record<BlockId, { name: string; minutes: number; short: string }> = {
+  speed: { name: 'Geschwindigkeit', minutes: 6, short: 'Wechselschlag, Bursts, Legato – das Tempo wächst mit' },
+  accuracy: { name: 'Treffsicherheit', minutes: 6, short: 'Saitensprünge, Lagenwechsel, Oktaven, Griffbrett' },
+  rhythm: { name: 'Rhythmus & Timing', minutes: 3, short: 'Unterteilungen, Gallop, Synkopen, Polyrhythmen' },
+  scale: { name: 'Skala', minutes: 6, short: 'Hören, finden, vertiefen – in wechselnden Tonarten' },
+  chords: { name: 'Akkordfolge', minutes: 6, short: 'Powerchords und Dreiklänge sauber wechseln' },
+  improv: { name: 'Anwenden', minutes: 3, short: 'Mit der Skala über die Akkordfolge improvisieren' },
+};
+
+export const BLOCK_ORDER = Object.keys(BLOCK_INFO) as BlockId[];
+
+/** Single-exercise builders by key, for the daily rotation. */
+export const BUILDERS: Record<string, (ctx: BuildCtx) => Exercise> = {
+  A1: a1,
+  A2: a2,
+  A3: a3,
+  A4: a4,
+  A5: a5,
+  A6: a6,
+  B1: b1,
+  B2: b2,
+  B4: (ctx) => b4(ctx, minorShape(ctx)),
+  B5: (ctx) => b5(ctx, minorShape(ctx)),
+  D1: d1,
+  D2: d2,
+  D3: d3,
+  D4: d4,
+  E1: e1,
+  E2: e2,
+  E3: e3,
+  E4: e4,
+  R1: r1,
+  R2: r2,
+  R3: r3,
+  R4: r4,
+  K1: k1,
+  I1: i1,
+};
+
+/** Every note in a pattern, for validation. */
+export function patternNotes(steps: Step[] | undefined): Note[] {
+  return (steps ?? []).filter((s): s is Note => typeof s === 'object');
+}
+
