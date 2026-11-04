@@ -21,7 +21,8 @@ export function audio() {
 // An optional second voice (`layer`) plays a counter-rhythm, e.g. the "3"
 // of a 3:2 polyrhythm, in a softer, lower sound than the beat click.
 // Optional backing chords (`chords`) follow the same clock, so the screen can
-// ask which chord is sounding right now.
+// ask which chord is sounding right now. A riff (`riff`) can be played along
+// the same way, palm-muted notes short and dry.
 // ---------------------------------------------------------------------------
 
 export interface MetronomeChords {
@@ -46,12 +47,14 @@ export interface MetronomeOptions {
   /** Audible beat click (off: the clock still runs for the chords). */
   click: boolean;
   chords: MetronomeChords | null;
+  /** Riff voice: per grid step the notes struck there (null = nothing new), looping over whole bars. */
+  riff: { sub: number; events: ({ midis: number[]; len: number; pm: boolean } | null)[] } | null;
 }
 
 const LOOKAHEAD = 0.12;
 
 export class Metronome {
-  opts: MetronomeOptions = { bpm: 80, sub: 2, clickSub: false, beatsPerBar: 4, volume: 0.7, layer: null, click: true, chords: null };
+  opts: MetronomeOptions = { bpm: 80, sub: 2, clickSub: false, beatsPerBar: 4, volume: 0.7, layer: null, click: true, chords: null, riff: null };
   private timer: number | null = null;
   private nextTime = 0;
   private beat = 0;
@@ -121,7 +124,7 @@ export class Metronome {
 
   private schedule() {
     const { ctx, out } = audio();
-    const { bpm, clickSub, beatsPerBar, volume, layer, click: clickOn, chords } = this.opts;
+    const { bpm, clickSub, beatsPerBar, volume, layer, click: clickOn, chords, riff } = this.opts;
     while (this.nextTime < ctx.currentTime + LOOKAHEAD) {
       if (this.inBeat === 0) this.sub = this.opts.sub;
       const onBeat = this.inBeat === 0;
@@ -147,6 +150,12 @@ export class Metronome {
       if (layer?.hits.length && layer.sub === this.sub && layer.hits[(this.beat * this.sub + this.inBeat) % layer.hits.length]) {
         const osc = click(ctx, out, this.nextTime, 0.8, volume, 520, 'triangle');
         this.voices.push({ osc, time: this.nextTime });
+      }
+      const ev = riff?.events.length && riff.sub === this.sub ? riff.events[(this.beat * this.sub + this.inBeat) % riff.events.length] : null;
+      if (ev) {
+        const step = 60 / bpm / this.sub;
+        const dur = ev.pm ? Math.min(0.14, step * ev.len) : step * ev.len + 0.05;
+        this.strums.push(strum(ctx, out, this.nextTime, ev.midis, ev.pm ? 0.45 : 0.6, dur));
       }
       this.nextTime += 60 / bpm / this.sub;
       if (++this.inBeat >= this.sub) {

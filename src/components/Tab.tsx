@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Note, Step } from '../data/types';
 import { DEFAULT_BEATS, barSteps, countLabel } from '../music/meter';
-import { STRING_SHORT, TOP } from '../music/theory';
+import { STRING_SHORT, TOP, type Pos } from '../music/theory';
 
 interface Props {
   steps: Step[];
@@ -31,19 +31,39 @@ export function layoutTab(len: number, sub: number, lineLen?: number, barsPerLin
   return lines;
 }
 
-/** String a note keeps ringing on at each step ('hold' after a note), or -1. */
-export function sustained(steps: Step[]): number[] {
-  let ringing = -1;
+/** Strings that keep ringing at each step ('hold' after a note or chord). */
+export function sustained(steps: Step[]): number[][] {
+  let ringing: number[] = [];
   return steps.map((st) => {
-    if (typeof st === 'object') ringing = st.s;
-    else if (st === 'rest') ringing = -1;
-    return st === 'hold' ? ringing : -1;
+    if (typeof st === 'object') ringing = [st.s, ...(st.chord ?? []).map((p) => p.s)];
+    else if (st === 'rest') ringing = [];
+    return st === 'hold' ? ringing : [];
   });
 }
 
+/**
+ * Palm-mute marks above the tab: "PM" where a muted run starts, "–" while it
+ * lasts (holds and rests inside the run included), nothing elsewhere.
+ */
+export function palmMarks(steps: Step[]): string[] {
+  const out = steps.map(() => '');
+  let on = false;
+  steps.forEach((st, i) => {
+    if (typeof st === 'object') {
+      out[i] = st.pm ? (on ? '–' : 'PM') : '';
+      on = !!st.pm;
+    } else if (on) {
+      const next = steps.slice(i + 1).find((x): x is Note => typeof x === 'object');
+      if (next?.pm) out[i] = '–';
+      else on = false;
+    }
+  });
+  return out;
+}
+
 /** Column width in em: wide enough for the longest fret label, wider for eighths. */
-function columnWidth(notes: Note[], sub: number) {
-  const digits = Math.max(1, ...notes.map((x) => String(x.f).length + (x.t ? 0.6 : 0)));
+function columnWidth(notes: (Note | Pos)[], sub: number) {
+  const digits = Math.max(1, ...notes.map((x) => String(x.f).length + ('t' in x && x.t ? 0.6 : 0)));
   return Math.max(sub >= 4 ? 1.4 : 1.9, digits * 0.62 + 0.4);
 }
 
@@ -110,20 +130,24 @@ export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStr
   });
 
   if (!notes.length) return null;
-  const lo = allStrings ? 0 : Math.min(...notes.map((x) => x.s));
-  const hi = allStrings ? TOP : Math.max(...notes.map((x) => x.s));
+  const spots = notes.flatMap((x) => [x, ...(x.chord ?? [])]);
+  const lo = allStrings ? 0 : Math.min(...spots.map((x) => x.s));
+  const hi = allStrings ? TOP : Math.max(...spots.map((x) => x.s));
   const strings: number[] = [];
   for (let s = hi; s >= lo; s--) strings.push(s);
 
   // Pick directions get their own row above the strings (only when a pattern marks them).
   const strokes = notes.some((x) => x.stroke) ? 1 : 0;
-  const stepW = columnWidth(notes, sub) * (fit ? 0.82 : 1);
+  const pm = notes.some((x) => x.pm) ? 1 : 0;
+  const marks = pm ? palmMarks(cols) : [];
+  const head = strokes + pm;
+  const stepW = columnWidth(spots, sub) * (fit ? 0.82 : 1);
   const bar = grouped?.bar ?? barSteps(sub, beats);
   const ring = sustained(cols);
   const count = grouped?.count ?? ((i: number): [string, boolean] => [countLabel(i, sub, beats), i % sub === 0]);
 
   return (
-    <div className={`tab${fit ? ' compact' : ''}`} role="img" aria-label={`Tabulatur${counted ? `, ${beats}/4-Takt` : ''}${strokes ? ', mit Anschlagsrichtung (⊓ ab, V auf)' : ''}`} ref={box}>
+    <div className={`tab${fit ? ' compact' : ''}`} role="img" aria-label={`Tabulatur${counted ? `, ${beats}/4-Takt` : ''}${strokes ? ', mit Anschlagsrichtung (⊓ ab, V auf)' : ''}${pm ? ', PM = Palm-Mute' : ''}`} ref={box}>
       {lines.map((idxs, li) => (
         <div
           key={li}
@@ -133,11 +157,11 @@ export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStr
           className="tab-line"
           style={{
             gridTemplateColumns: `auto repeat(${idxs.length}, ${stepW}em)`,
-            gridTemplateRows: `${strokes ? '1.2em ' : ''}repeat(${strings.length}, 1.7em)${counted ? ' 1.3em' : ''}`,
+            gridTemplateRows: `${strokes ? '1.2em ' : ''}${pm ? '1.1em ' : ''}repeat(${strings.length}, 1.7em)${counted ? ' 1.3em' : ''}`,
           }}
         >
           {strings.map((s, r) => (
-            <span key={`l${s}`} className="tab-label" style={{ gridRow: r + 1 + strokes, gridColumn: 1 }}>
+            <span key={`l${s}`} className="tab-label" style={{ gridRow: r + 1 + head, gridColumn: 1 }}>
               {STRING_SHORT[s]}
             </span>
           ))}
@@ -153,20 +177,25 @@ export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStr
                   {typeof st === 'object' && st.stroke ? STROKE_MARK[st.stroke] : null}
                 </span>
               ) : null,
+              pm ? (
+                <span key={`${i}-pm`} className="tab-pm" style={{ gridRow: 1 + strokes, gridColumn: c + 2 }}>
+                  {c === 0 && marks[i] === '–' ? 'PM' : marks[i]}
+                </span>
+              ) : null,
               ...strings.map((s, r) => {
-                const note = typeof st === 'object' && st.s === s ? st : null;
+                const note = typeof st === 'object' ? (st.s === s ? st : st.chord?.find((p) => p.s === s)) : null;
                 return (
                   <span
                     key={`${i}-${s}`}
-                    className={`tab-cell${cls}${ring[i] === s ? ' hold' : ''}`}
-                    style={{ gridRow: r + 1 + strokes, gridColumn: c + 2 }}
+                    className={`tab-cell${cls}${ring[i].includes(s) ? ' hold' : ''}`}
+                    style={{ gridRow: r + 1 + head, gridColumn: c + 2 }}
                   >
                     {note ? <NoteText n={note} /> : null}
                   </span>
                 );
               }),
               counted ? (
-                <span key={`${i}-count`} className={`tab-count${cls}${beat ? ' beat' : ''}`} style={{ gridRow: strings.length + 1 + strokes, gridColumn: c + 2 }}>
+                <span key={`${i}-count`} className={`tab-count${cls}${beat ? ' beat' : ''}`} style={{ gridRow: strings.length + 1 + head, gridColumn: c + 2 }}>
                   {label}
                 </span>
               ) : null,

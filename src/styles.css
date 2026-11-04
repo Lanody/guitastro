@@ -787,6 +787,16 @@ button {
   font-weight: 600;
   color: var(--muted);
 }
+/* Palm mute above the strings: "PM" where it starts, a dash while it lasts. */
+.tab-pm {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  font-size: 0.62em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
 /* A held note: a thick line on its string until the next note or rest. */
 .tab-cell.hold {
   background: linear-gradient(var(--muted), var(--muted)) center / 100% 3px no-repeat;
@@ -883,6 +893,12 @@ button {
 }
 .fb-dot.color text {
   fill: #fff;
+}
+.fb-dot.dim circle {
+  opacity: 0.35;
+}
+.fb-dot.dim text {
+  opacity: 0.45;
 }
 .fb-mark circle {
   fill: var(--teal);

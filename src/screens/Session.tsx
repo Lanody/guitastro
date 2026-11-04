@@ -6,6 +6,7 @@ import { HitTrainer } from '../components/HitTrainer';
 import { Tab } from '../components/Tab';
 import { ListenWidget, RecallWidget } from '../components/Widgets';
 import { BLOCK_INFO, MODULE_INFO } from '../data/exercises';
+import { riffEvents } from '../data/riffs';
 import { seconds, type Exercise, type Focus } from '../data/types';
 import { FOCUS_INFO, bpmFor, type Plan } from '../logic/plan';
 import type { AppState, ExerciseResult, HitLog, Rating } from '../logic/state';
@@ -31,8 +32,6 @@ export const FOCUS_LABEL: Record<Focus, string> = {
 };
 
 const SUB_LABEL: Record<number, string> = { 2: 'Achtel', 3: 'Triolen', 4: 'Sechzehntel' };
-/** Note values the player may switch between; phases in other values (triplets) show no switch. */
-const SUB_CHOICES = [2, 4];
 
 const fmt = (ms: number) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -66,6 +65,8 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
   const [droneAuto, setDroneAuto] = useState(true);
   const [showMap, setShowMap] = useState(false);
   const [backing, setBacking] = useState(false);
+  const [demo, setDemo] = useState(false);
+  const [showTab, setShowTab] = useState(false);
   const [chordIdx, setChordIdx] = useState(-1);
   const practiced = useRef(0);
   const lastTick = useRef(0);
@@ -128,12 +129,14 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
     }
   }, [elapsed, running, ex.tracksTempo, settings.restCue]);
 
-  // New phase → booklet note value again, backing as the phase suggests.
+  // New phase → booklet note value again, backing and play-along as the phase suggests, tab uncovered only on request.
   useEffect(() => {
     setSubOverride(null);
     setPickVal(null);
     setBacking(!!phase.backing);
-  }, [phaseIdx, idx, phase.backing]);
+    setDemo(!!phase.demo);
+    setShowTab(false);
+  }, [phaseIdx, idx, phase.backing, phase.demo]);
 
   // Metronome follows play state and settings. It also runs (silently, if the click is off) to keep chord time.
   const layer = useMemo(() => (phase.layer && shown && click ? { sub, hits: shown.map((st) => typeof st === 'object') } : null), [phase.layer, shown, sub, click]);
@@ -142,9 +145,12 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
     () => (chords ? { id: chordId, midis: chords.slots.map((c) => c.midis), beatsPer: chords.beatsPer, audible: backing } : null),
     [chords, chordId, backing],
   );
+  // Riffs: the app plays the pattern along when "Vorspielen" is on.
+  const isRiff = ex.module === 'W';
+  const riff = useMemo(() => (isRiff && demo && shown ? { sub, events: riffEvents(shown) } : null), [isRiff, demo, shown, sub]);
   useEffect(() => {
-    metronome.set({ bpm, sub, beatsPerBar: beats, clickSub: settings.clickSub, volume: settings.clickVolume, layer, click: click && usesMetronome, chords: metroChords });
-  }, [bpm, sub, beats, settings.clickSub, settings.clickVolume, layer, click, usesMetronome, metroChords]);
+    metronome.set({ bpm, sub, beatsPerBar: beats, clickSub: settings.clickSub, volume: settings.clickVolume, layer, click: click && usesMetronome, chords: metroChords, riff });
+  }, [bpm, sub, beats, settings.clickSub, settings.clickVolume, layer, click, usesMetronome, metroChords, riff]);
 
   const shouldRun = running && stage === 'play' && (usesMetronome || !!chords);
   useEffect(() => {
@@ -349,7 +355,13 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
           <div className="tab-meta muted small">
             {beats}/4 · {SUB_LABEL[sub]} · {bpm} BPM
           </div>
-          <Tab steps={shown} sub={sub} beats={beats} groups={phase.groups} />
+          {phase.hideTab && !showTab ? (
+            <button className="btn ghost wide" onClick={() => setShowTab(true)}>
+              Tab ist abgedeckt – nur bei einer Lücke aufdecken
+            </button>
+          ) : (
+            <Tab steps={shown} sub={sub} beats={beats} groups={phase.groups} />
+          )}
         </section>
       )}
 
@@ -391,9 +403,9 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
           </button>
         </div>
         <div className="toggles">
-          {ex.pattern && ex.tracksTempo && SUB_CHOICES.includes(phase.sub) && (
+          {phase.alt && (
             <div className="seg small">
-              {SUB_CHOICES.map((v) => (
+              {[phase.alt, phase.sub].map((v) => (
                 <button key={v} className={sub === v ? 'on' : ''} onClick={() => setSubOverride(v)}>
                   {SUB_LABEL[v]}
                 </button>
@@ -406,6 +418,11 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
           {chords && (
             <button className={`btn small ${backing ? 'on' : 'ghost'}`} onClick={() => setBacking(!backing)}>
               Begleitung
+            </button>
+          )}
+          {isRiff && (
+            <button className={`btn small ${demo ? 'on' : 'ghost'}`} onClick={() => setDemo(!demo)}>
+              Vorspielen
             </button>
           )}
           <button

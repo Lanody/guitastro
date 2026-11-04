@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { BLOCK_INFO, BLOCK_ORDER, BUILDERS, PHRASES, moduleA, moduleB, moduleD, patternNotes, scaleBlock, type BuildCtx, type ScaleStage } from '../data/exercises';
+import { BLOCK_INFO, BLOCK_ORDER, BUILDERS, PHRASES, moduleA, moduleB, moduleD, patternNotes, positionSchedule, scaleBlock, type BuildCtx, type ScaleStage } from '../data/exercises';
+import { RIFFS } from '../data/riffs';
 import { rngFrom } from '../data/rng';
 import { seconds, type Exercise } from '../data/types';
 import { progressionFor } from '../music/chords';
 import { NATURAL_MINOR, ROOT_ROTATION, SCALES, SCALE_ROTATION, getScale } from '../music/scales';
-import { fretMidi, inScale } from '../music/theory';
-import { POOLS, advanceScale, applyRating, bpmFor, buildPlan, poolKeys, scaleStage, streak } from './plan';
+import { fretMidi, inScale, scalePositions } from '../music/theory';
+import { POOLS, advanceScale, applyRating, bpmFor, buildPlan, poolCycle, poolKeys, riffWeek, scaleStage, streak } from './plan';
 import { initialState, type AppState, type SessionLog } from './state';
 
 const STAGES: ScaleStage[] = ['learn', 'deepen', 'apply'];
@@ -111,10 +112,11 @@ describe('daily plan', () => {
       played(s, 1);
     }
   });
-  it('technique exercises change every day and come back within three days', () => {
+  it('technique exercises change every day and come back within five lessons', () => {
     for (const block of ['speed', 'accuracy'] as const) {
       expect(poolKeys(block, 0)).not.toEqual(poolKeys(block, 1));
-      const seen = new Set([0, 1, 2].flatMap((d) => poolKeys(block, d)));
+      expect(poolCycle(block)).toBeLessThanOrEqual(5);
+      const seen = new Set(Array.from({ length: poolCycle(block) }, (_, d) => poolKeys(block, d)).flat());
       expect(seen.size).toBe(POOLS[block].keys.length);
     }
     expect(poolKeys('rhythm', 0)).not.toEqual(poolKeys('rhythm', 1));
@@ -155,6 +157,50 @@ describe('daily plan', () => {
     s.firstDay = '2026-11-01';
     expect(buildPlan(s, '2026-11-10').vary).toBe(false);
     expect(buildPlan(s, '2026-11-15').vary).toBe(true);
+  });
+  it('riff of the week: next riff each week with lessons, the step follows the lessons of the week', () => {
+    const s: AppState = initialState();
+    const at = (d: string): SessionLog => ({ ...log(['W']), blocks: BLOCK_ORDER, date: `${d}T18:00:00` });
+    expect(riffWeek(s, '2026-11-04')).toEqual({ index: 0, lesson: 0 });
+    // Week of 26 Oct: two lessons; nothing in the week of 19 Oct; this week (from 2 Nov): one so far.
+    s.sessions = [at('2026-10-26'), at('2026-10-28'), at('2026-11-02')];
+    expect(riffWeek(s, '2026-11-04')).toEqual({ index: 1, lesson: 1 });
+    expect(riffWeek(s, '2026-11-09')).toEqual({ index: 2, lesson: 0 });
+    // Lessons from before the riff block existed don't count.
+    s.sessions.push({ ...log(['A']), date: '2026-10-12T18:00:00' });
+    expect(riffWeek(s, '2026-11-04').index).toBe(1);
+    const p = buildPlan(s, '2026-11-04');
+    const riff = p.exercises.find((e) => e.block === 'riff')!;
+    expect(riff.key).toBe('W2');
+    expect(riff.title).toContain(RIFFS[1].name);
+    expect(riff.tracksTempo).toBe(true);
+  });
+  it('fretboard: from three lessons per scale, every position comes up within the block', () => {
+    for (const card of SCALES) {
+      const count = scalePositions(getScale(card.id)).length;
+      for (let days = 1; days <= 8; days++) {
+        const plan = positionSchedule(count, days);
+        expect(plan).toHaveLength(days);
+        expect(plan[0]).toEqual([0]);
+        const all = plan.flat();
+        expect(new Set(all).size, `${card.id} ${days}`).toBe(all.length);
+        if (days >= 3) expect(all.sort((a, b) => a - b), `${card.id} ${days} days`).toEqual(Array.from({ length: count }, (_, i) => i));
+      }
+    }
+    expect(positionSchedule(7, 3)).toEqual([[0], [1, 2, 3, 4], [5, 6]]);
+    expect(positionSchedule(5, 3)).toEqual([[0], [1, 2, 3, 4], []]);
+  });
+  it('scale block lasts 6 minutes on every day, for every block length', () => {
+    for (const card of SCALES) {
+      const sc = getScale(card.id, 7);
+      for (let total = 1; total <= 8; total++) {
+        for (let index = 0; index < total; index++) {
+          const stage: ScaleStage = index === 0 ? 'learn' : index === total - 1 ? 'apply' : 'deepen';
+          const block = scaleBlock({ rng: rngFrom('x'), vary: false, scale: sc, stage, blockDay: { index, total } });
+          expect(block.reduce((a, e) => a + seconds(e), 0), `${card.id} day ${index + 1}/${total}`).toBe(360);
+        }
+      }
+    }
   });
   it('pinned scale stays and keeps cycling through the stages', () => {
     const s: AppState = initialState();

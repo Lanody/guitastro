@@ -3,7 +3,8 @@ import { playSequence } from '../audio/engine';
 import { BLOCK_INFO, BLOCK_ORDER, BUILDERS } from '../data/exercises';
 import { rngFrom } from '../data/rng';
 import type { BlockId } from '../data/types';
-import { POOLS, START_BPM, STAGE_INFO, UNLOCK_DAYS, scaleStage } from '../logic/plan';
+import { RIFFS, RIFF_STAGES } from '../data/riffs';
+import { POOLS, START_BPM, STAGE_INFO, UNLOCK_DAYS, poolCycle, riffWeek, scaleStage } from '../logic/plan';
 import type { AppState, Settings } from '../logic/state';
 import { ROOT_ROTATION, SCALE_ROTATION, getScale } from '../music/scales';
 import { TUNINGS, isDrop, noteName, tuningById, type Tuning } from '../music/theory';
@@ -23,6 +24,7 @@ const BLOCK_TEXT: Record<BlockId, (s: Settings) => string> = {
   speed: () => `${POOLS.speed.perDay} von ${POOLS.speed.keys.length} Übungen im Wechsel`,
   accuracy: () => `${POOLS.accuracy.perDay} von ${POOLS.accuracy.keys.length} Übungen im Wechsel`,
   rhythm: () => `1 von ${POOLS.rhythm.keys.length} Übungen im Wechsel`,
+  riff: () => 'Ein Riff für die ganze Woche – jede Lektion ein Schritt weiter, bis du es auswendig spielst',
   scale: (s) => `Die aktuelle Skala – sie bleibt ${s.scaleSessions} ${s.scaleSessions === 1 ? 'Lektion' : 'Lektionen'}, jedes Mal mit anderen Aufgaben`,
   chords: () => 'Eine Akkordfolge aus genau dieser Skala und Tonart, die App spielt auf Wunsch mit',
   improv: () => 'Mit der Skala über diese Akkordfolge improvisieren',
@@ -106,7 +108,7 @@ export function PlanGuide({ state }: { state: AppState }) {
   return (
     <div className="guide">
       <p>
-        Jede Lektion dauert 30 Minuten und hat immer dieselben sechs Blöcke in derselben Reihenfolge. Was <i>in</i> den Blöcken drankommt, rechnet die App aus: wie viele Lektionen du schon
+        Jede Lektion dauert 30 Minuten und hat immer dieselben {BLOCK_ORDER.length} Blöcke in derselben Reihenfolge. Was <i>in</i> den Blöcken drankommt, rechnet die App aus: wie viele Lektionen du schon
         gespeichert hast, welche Skala gerade dran ist und wie deine letzten Bewertungen waren.
       </p>
 
@@ -125,15 +127,15 @@ export function PlanGuide({ state }: { state: AppState }) {
 
       <h3>Warum jeden Tag andere Übungen?</h3>
       <p className="small">
-        Die Auswahl rückt mit jeder <b>gespeicherten Lektion</b> eine Stelle weiter – nicht nach Kalendertag. Lässt du einen Tag aus, verpasst du also nichts. Jede Übung kommt alle 3 Lektionen
-        wieder: oft genug, damit das Tempo wachsen kann.
+        Die Auswahl rückt mit jeder <b>gespeicherten Lektion</b> eine Stelle weiter – nicht nach Kalendertag. Lässt du einen Tag aus, verpasst du also nichts. Jede Übung kommt spätestens nach{' '}
+        {poolCycle('speed')} Lektionen wieder: oft genug, damit das Tempo wachsen kann.
       </p>
 
       <h3>Skala und Tonart – du bleibst nicht auf C</h3>
       <p className="small">
         Eine Skala bleibt für {total} {total === 1 ? 'Lektion' : 'Lektionen'}. Die erste: kennenlernen (hören, finden).
-        {total > 2 && ' Die mittleren: vertiefen (Sequenzen, zweite Lage).'}
-        {total > 1 && ' Die letzte: festigen (abrufen, transponieren, Musik machen).'} Danach kommt automatisch die nächste Skala <b>mit neuem Grundton</b>. Die Grundtöne laufen der Reihe
+        {total > 2 && ' Die mittleren: vertiefen (Sequenzen, neue Lagen).'}
+        {total > 1 && ' Die letzte: festigen (abrufen, Lagen verbinden, Musik machen).'} Danach kommt automatisch die nächste Skala <b>mit neuem Grundton</b>. Die Grundtöne laufen der Reihe
         nach durch alle zwölf Tonarten: {keys}.
       </p>
       <div className="guide-now small">
@@ -141,13 +143,30 @@ export function PlanGuide({ state }: { state: AppState }) {
         {state.scale.pinned ? 'Die Skala ist fixiert und wechselt nicht automatisch.' : `Danach: ${nextScaleName(state)}.`}
       </div>
       <p className="small">
+        <b>Das ganze Griffbrett:</b> Jede Skala hat mehrere Lagen – sieben bei Skalen mit sieben Tönen, fünf bei Pentatoniken. Am ersten Tag lernst du Lage 1, an den folgenden Tagen
+        kommen die übrigen dazu und werden mit den bekannten verbunden. Zusammen decken sie jeden Ton der Skala auf jeder Saite ab.{' '}
+        {total >= 3
+          ? 'Mit deiner Einstellung kommen alle Lagen innerhalb einer Skala dran.'
+          : 'Dafür braucht eine Skala mindestens 3 Lektionen (Mehr → Lektionen pro Skala); unter Skalen → Alle Lagen siehst du sie jederzeit.'}
+      </p>
+      <p className="small">
         Lieber eine bestimmte Skala oder Tonart? Unter <b>Skalen</b> auswählen und „Ab der nächsten Einheit üben“ tippen. Mit „Länger bei dieser Skala bleiben“ wird sie fixiert.
       </p>
       <p className="small muted">Tonart ist nicht Stimmung: Die Tonart wechselt mit jeder Skala. Die Stimmung deiner Gitarre legst du einmal fest (Mehr → Gitarre).</p>
 
+      <h3>Riff der Woche</h3>
+      <p className="small">
+        Jede Kalenderwoche, in der du übst, bringt ein neues Riff – {RIFFS.length} Riffs von leicht bis schwer, alle auf den tiefen Saiten und passend zu deiner Stimmung. Die Lektionen der Woche
+        bauen aufeinander auf: {RIFF_STAGES.join(' → ')}. Die App kann das Riff vorspielen (Vorspielen), ab der zweiten Lektion wächst das Tempo mit deinen Bewertungen.
+      </p>
+      <div className="guide-now small">
+        <b>Diese Woche:</b> {RIFFS[riffWeek(state).index % RIFFS.length].name}, Lektion {riffWeek(state).lesson + 1} (
+        {RIFF_STAGES[Math.min(RIFF_STAGES.length - 1, riffWeek(state).lesson)]}).
+      </div>
+
       <h3>Tempo</h3>
       <p className="small">
-        Jede Technik-Übung beginnt bei {START_BPM} BPM. Nach jeder Übung bewertest du sie: „Sauber &amp; locker“, „Ging so“ oder „Unsauber / verkrampft“. Zweimal hintereinander sauber = beim
+        Jede Technik-Übung und jedes Riff beginnt bei {START_BPM} BPM. Nach jeder Übung bewertest du sie: „Sauber &amp; locker“, „Ging so“ oder „Unsauber / verkrampft“. Zweimal hintereinander sauber = beim
         nächsten Mal +{s.tempoStep} BPM, zweimal unsauber = −{s.tempoStep} BPM. Das Tempo merkt sich die App für jede Übung einzeln.
       </p>
 
@@ -255,7 +274,7 @@ export function Onboarding({ state, onSettings }: OnboardingProps) {
           <p>
             {returning
               ? 'Die App kennt jetzt verschiedene Stimmungen und Gitarren mit 6 oder 7 Saiten. Einmal kurz einrichten – danach erklärt sie dir, wie deine Lektionen entstehen und wo du was einstellst.'
-              : 'Die App stellt dir jeden Tag eine 30-Minuten-Lektion zusammen: Technik, Rhythmus, eine Skala, eine Akkordfolge und Improvisation. Erst richtest du deine Gitarre ein, dann zeigt sie dir in zwei Schritten, wie alles funktioniert.'}
+              : 'Die App stellt dir jeden Tag eine 30-Minuten-Lektion zusammen: Technik, Rhythmus, ein Riff der Woche, eine Skala, eine Akkordfolge und Improvisation. Erst richtest du deine Gitarre ein, dann zeigt sie dir in zwei Schritten, wie alles funktioniert.'}
           </p>
           <ul className="small guide-points">
             <li>Dein Fortschritt bleibt erhalten – auch wenn du die Stimmung später wechselst.</li>

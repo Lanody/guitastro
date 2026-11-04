@@ -8,7 +8,23 @@ import type { MapDot } from '../data/types';
 import { scaleProgress } from '../logic/progress';
 import type { AppState, HitLog } from '../logic/state';
 import { ROOTS, SCALES, SCALE_ROTATION, getScale } from '../music/scales';
-import { STRINGS, STRING_DAT, STRING_LONG, TOP, degreeOf, lowRoot, fretMidi, fretboardNotes, noteName, oneStringOctave, sixStringPath, type ScaleDef } from '../music/theory';
+import {
+  STRINGS,
+  STRING_DAT,
+  STRING_LONG,
+  TOP,
+  degreeOf,
+  fretMidi,
+  fretRange,
+  fretboardNotes,
+  lowRoot,
+  noteName,
+  oneStringOctave,
+  scalePositions,
+  sixStringPath,
+  type Pos,
+  type ScaleDef,
+} from '../music/theory';
 
 interface Props {
   state: AppState;
@@ -17,9 +33,12 @@ interface Props {
   onEar: (logs: HitLog[]) => void;
 }
 
-function dots(sc: ScaleDef): MapDot[] {
-  return fretboardNotes(sc, 0, 15).map((p) => {
+/** Scale notes in a fret window; with `only`, notes outside that position are dimmed. */
+function dots(sc: ScaleDef, from = 0, to = 15, only?: Pos[]): MapDot[] {
+  const inPos = only && new Set(only.map((p) => `${p.s}:${p.f}`));
+  return fretboardNotes(sc, from, to).map((p) => {
     const deg = degreeOf(sc, fretMidi(p.s, p.f));
+    if (inPos && !inPos.has(`${p.s}:${p.f}`)) return { ...p, kind: 'dim' };
     return { ...p, kind: deg === 0 ? 'root' : sc.color.includes(deg) ? 'color' : 'note' };
   });
 }
@@ -29,6 +48,8 @@ export function Scales({ state, onChoose, onEar }: Props) {
   const [root, setRoot] = useState(state.scale.root ?? 0);
   const [drone, setDrone] = useState(false);
   const [tapped, setTapped] = useState<{ s: number; f: number } | null>(null);
+  /** Position shown in "Alle Lagen" (-1 = all at once). */
+  const [lage, setLage] = useState(-1);
   useEffect(() => () => droneOff(), []);
   // The drone follows the selected key.
   useEffect(() => {
@@ -39,6 +60,15 @@ export function Scales({ state, onChoose, onEar }: Props) {
   const r = noteName(root);
   const current = state.scale.id === sc.id && (state.scale.root ?? 0) === root;
   const path = sixStringPath(sc);
+  const positions = scalePositions(sc);
+  const shownLage = lage < positions.length ? lage : -1;
+  // All positions: the whole neck. One position: a window around it, neighbouring notes dimmed.
+  const win: [number, number] = (() => {
+    if (shownLage < 0) return [0, 17];
+    const [lo, hi] = fretRange(positions[shownLage]);
+    const from = Math.max(0, lo - 2);
+    return [from, Math.min(17, Math.max(hi + 2, from + 8))];
+  })();
   const octave = oneStringOctave(sc);
   const base = 48 + root;
 
@@ -123,7 +153,36 @@ export function Scales({ state, onChoose, onEar }: Props) {
       </section>
 
       <section className="card">
-        <h3>Weg über alle {STRINGS} Saiten</h3>
+        <h3>Alle Lagen · das ganze Griffbrett</h3>
+        <p className="small muted">
+          {sc.name} hat {positions.length} Lagen. Zusammen decken sie jeden Ton der Skala auf jeder Saite ab – ab Bund 12 wiederholt sich alles eine Oktave höher. Im Skalen-Block lernst du sie
+          der Reihe nach.
+        </p>
+        <div className="scale-tabs" aria-label="Lage">
+          <button className={`chip${shownLage === -1 ? ' on' : ''}`} onClick={() => setLage(-1)}>
+            Alle
+          </button>
+          {positions.map((_, i) => (
+            <button key={i} className={`chip${shownLage === i ? ' on' : ''}`} onClick={() => setLage(i)}>
+              Lage {i + 1}
+            </button>
+          ))}
+        </div>
+        <Fretboard
+          from={win[0]}
+          to={win[1]}
+          dots={dots(sc, win[0], win[1], shownLage >= 0 ? positions[shownLage] : undefined)}
+          caption={shownLage >= 0 ? `Lage ${shownLage + 1}: Bund ${fretRange(positions[shownLage]).join('–')} · blass = Töne der anderen Lagen` : `Alle Töne von ${sc.name} bis Bund 17`}
+        />
+        {shownLage >= 0 && (
+          <button className="btn ghost small" onClick={() => playSequence(positions[shownLage].map((p) => fretMidi(p.s, p.f)), 120)}>
+            ▶ Lage {shownLage + 1} anhören
+          </button>
+        )}
+      </section>
+
+      <section className="card">
+        <h3>Weg über alle {STRINGS} Saiten · Lage 1</h3>
         <PathTab scale={sc} />
         <p className="small muted">
           Ab Bund {path[0].f}: vom tiefen {noteName(fretMidi(path[0].s, path[0].f))} zum hohen {noteName(fretMidi(path[path.length - 1].s, path[path.length - 1].f))}. Anschließend rückwärts spielen. Der Startton ändert nicht das tonale Zentrum {r}.

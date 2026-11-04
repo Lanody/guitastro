@@ -187,7 +187,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     group: 'Dranbleiben',
     icon: '💪',
     title: 'Volles Programm',
-    text: 'Alle sechs Blöcke einer Einheit gespielt, nichts übersprungen.',
+    text: 'Alle Blöcke einer Einheit gespielt, nichts übersprungen.',
     progress: (s) => flag(s.sessions.some((x) => fullPlan(x) || ['A', 'B', 'C'].every((m) => x.modules.includes(m as 'A')))),
   },
   { id: 'early', group: 'Dranbleiben', icon: '🌅', title: 'Frühschicht', text: 'Eine Einheit vor 9 Uhr.', progress: (s) => flag(s.sessions.some((x) => hourOf(x) < 9)) },

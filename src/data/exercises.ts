@@ -29,15 +29,17 @@ import {
   fretMidi,
   midiToPc,
   noteName,
+  fretRange,
   oneStringOctave,
+  scalePositions,
   scaleRun,
-  secondPosition,
   sixStringPath,
   stringsWord,
   twoStringGroup,
   type Pos,
   type ScaleDef,
 } from '../music/theory';
+import type { RiffWeek } from './riffs';
 import { pick, shuffle, type Rng } from './rng';
 import type { BlockId, Exercise, FretMap, MapDot, Note, Phase, Step, Stroke } from './types';
 
@@ -51,8 +53,12 @@ export interface BuildCtx {
   /** The day's scale in the day's key. */
   scale: ScaleDef;
   stage?: ScaleStage;
+  /** Day within the scale block (0-based) and the block's length in days. */
+  blockDay?: { index: number; total: number };
   /** The day's chord progression (in the scale's key). */
   progression?: Chord[];
+  /** Riff of the week and the lesson within the week. */
+  riff?: RiffWeek;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +193,7 @@ function a1(ctx: BuildCtx): Exercise {
     pattern,
     phases: [
       { label: 'Minute 1', seconds: 60, sub: 2, text: 'Achtel – 2 Noten pro Klick.' },
-      { label: 'Minute 2', seconds: 60, sub: 4, text: 'Sechzehntel – nur wenn Minute 1 locker war. Sonst bei Achteln bleiben.' },
+      { label: 'Minute 2', seconds: 60, sub: 4, alt: 2, text: 'Sechzehntel – nur wenn Minute 1 locker war. Sonst bei Achteln bleiben.' },
     ],
     tracksTempo: true,
   };
@@ -216,7 +222,7 @@ function a2(ctx: BuildCtx): Exercise {
     pattern: [...up.map((f) => n(lo, f)), ...up.map((f) => n(hi, f)), ...down.map((f) => n(hi, f)), ...down.map((f) => n(lo, f))],
     phases: [
       { label: 'Minute 1', seconds: 60, sub: 2, text: 'Mit Achteln beginnen.' },
-      { label: 'Minute 2', seconds: 60, sub: 4, text: 'Erst wenn Achtel sauber sind: Sechzehntel.' },
+      { label: 'Minute 2', seconds: 60, sub: 4, alt: 2, text: 'Erst wenn Achtel sauber sind: Sechzehntel.' },
     ],
     tracksTempo: true,
   };
@@ -462,7 +468,7 @@ function b1(ctx: BuildCtx): Exercise {
     pattern: [...ascending, ...descending, 'rest'],
     phases: [
       { label: 'Minute 1', seconds: 60, sub: 2, text: 'Achtel.' },
-      { label: 'Minute 2', seconds: 60, sub: 4, text: 'Bei sauberer Ausführung Sechzehntel.' },
+      { label: 'Minute 2', seconds: 60, sub: 4, alt: 2, text: 'Bei sauberer Ausführung Sechzehntel.' },
     ],
     tracksTempo: true,
   };
@@ -695,7 +701,7 @@ function scaleFind(sc: ScaleDef, map: FretMap, path: Pos[]): Exercise {
     map,
     phases: [
       { label: 'Minute 1', seconds: 60, sub: 2, text: `Die Ein-Saiten-Oktave auf der ${octaveText(octave)}: ${r} bis ${r} und zurück.`, pattern: padBar([...oUp, ...[...oUp].reverse().slice(1)], 2) },
-      { label: 'Minute 2–3', seconds: 120, sub: 2, text: `Das ${stringsWord()}-Saiten-Griffbild ${positionText(path)} in beide Richtungen.`, pattern: padBar([...up, ...down.slice(1)], 2) },
+      { label: 'Minute 2–3', seconds: 120, sub: 2, text: `Lage 1, das ${stringsWord()}-Saiten-Griffbild ${positionText(path)}, in beide Richtungen. Die übrigen Lagen folgen in den nächsten Lektionen.`, pattern: padBar([...up, ...down.slice(1)], 2) },
       { label: 'Minute 4', seconds: 60, sub: 2, text: 'Griffbild abgedeckt: auf drei Saiten Grundton und Farbton suchen.', widget: 'find', hideMap: true, metronome: false },
     ],
     tracksTempo: false,
@@ -711,12 +717,11 @@ function scaleSequences(sc: ScaleDef, map: FretMap, path: Pos[]): Exercise {
     num: 6,
     title: 'Sequenzen',
     focus: 'scales',
-    intro: 'Sequenzen machen aus der Tonleiter Musik: immer einen Ton weiter, dieselbe Figur. So lernst du das Griffbild in Stücken statt nur von unten nach oben. Langsam und gleichmäßig.',
+    intro: 'Sequenzen machen aus der Tonleiter Musik: immer einen Ton weiter, dieselbe Figur. So lernst du Lage 1 in Stücken statt nur von unten nach oben. Langsam und gleichmäßig.',
     map,
     phases: [
       { label: 'Minute 1', seconds: 60, sub: 3, text: 'Dreiergruppen aufwärts als Triolen: 1-2-3, 2-3-4, 3-4-5 …', pattern: padBar(sequence(path, 3), 3) },
-      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Vierergruppen aufwärts als Achtel: 1-2-3-4, 2-3-4-5 …', pattern: padBar(sequence(path, 4), 2) },
-      { label: 'Minute 3', seconds: 60, sub: 2, text: 'Terzen: jeweils einen Skalenton überspringen – 1-3, 2-4, 3-5 …', pattern: padBar(thirds(path), 2) },
+      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Terzen: jeweils einen Skalenton überspringen – 1-3, 2-4, 3-5 …', pattern: padBar(thirds(path), 2) },
     ],
     tracksTempo: false,
     scaleId: sc.id,
@@ -724,27 +729,92 @@ function scaleSequences(sc: ScaleDef, map: FretMap, path: Pos[]): Exercise {
   };
 }
 
-function scaleSecondPosition(sc: ScaleDef, path: Pos[]): Exercise {
+/**
+ * Which positions each day of a scale block brings: the first day the home
+ * position, the middle days up to four new ones each, the last day up to two.
+ * From three days per scale on, every position comes up within the block.
+ */
+export function positionSchedule(count: number, days: number): number[][] {
+  const out: number[][] = Array.from({ length: Math.max(1, days) }, () => []);
+  out[0] = [0];
+  const rest = Array.from({ length: count - 1 }, (_, i) => i + 1);
+  const middle = Math.max(0, days - 2);
+  if (middle) {
+    const per = Math.min(4, Math.ceil(rest.length / middle));
+    for (let d = 1; d <= middle; d++) out[d] = rest.splice(0, per);
+  }
+  if (days > 1) out[days - 1] = rest.splice(0, 2);
+  return out;
+}
+
+const lageText = (i: number, p: Pos[]) => {
+  const [lo, hi] = fretRange(p);
+  return `Lage ${i + 1} (Bund ${lo}–${hi})`;
+};
+
+/** The already known position closest to position `i` on the neck. */
+function neighbour(all: Pos[][], i: number) {
+  const known = all.slice(0, i).map((p, j) => ({ j, d: Math.abs(p[0].f - all[i][0].f) }));
+  return known.sort((a, b) => a.d - b.d)[0]?.j ?? 0;
+}
+
+/** The whole neck with all scale notes: what the positions add up to. */
+function fullNeck(count: number): Phase[] {
+  return [
+    {
+      label: 'Griffbrett-Tour',
+      seconds: 60,
+      sub: 2,
+      text: `Einmal über den ganzen Hals: in Lage 1 eine Oktave aufwärts, in die nächste Lage weiterrutschen und so weiter, bis alle ${count} Lagen dran waren. Die Karte zeigt jeden Ton der Skala bis Bund 17.`,
+      metronome: false,
+    },
+    { label: 'Treffer', seconds: 60, sub: 2, text: 'Die App nennt Töne der Skala – finde sie irgendwo auf dem Griffbrett, ohne Karte.', widget: 'notes', hideMap: true, metronome: false },
+  ];
+}
+
+/**
+ * Lagen: today's new positions of the scale, one minute each (up and down),
+ * the rest of the time connects them with a known neighbour. With no new
+ * position left the whole neck is reviewed.
+ */
+function scalePositionsEx(sc: ScaleDef, all: Pos[][], today: number[], minutes: number): Exercise {
   const r = noteName(sc.root);
-  const path2 = secondPosition(sc);
-  const p1 = pathUpDown(path);
-  const p2 = pathUpDown(path2);
+  const count = all.length;
+  const base = { key: 'C7', module: 'C' as const, num: 7, focus: 'scales' as const, tracksTempo: false, scaleId: sc.id, root: sc.root };
+  if (!today.length) {
+    return {
+      ...base,
+      title: 'Ganzes Griffbrett',
+      intro: `Alle ${count} Lagen von ${sc.name} zusammen decken das ganze Griffbrett ab – ab Bund 12 wiederholt sich alles eine Oktave höher. Jetzt die Lagen verbinden, statt in einer Box zu bleiben.`,
+      map: scaleMap(sc, 0, 17, `Alle Töne von ${sc.name} · Gold = ${r} (Grundton) · Türkis = ${sc.colorLabel}`),
+      phases: [...fullNeck(count), ...fullNeck(count)].slice(0, minutes),
+    };
+  }
+  const phases: Phase[] = today.map((i) => {
+    const { up, down } = pathUpDown(all[i]);
+    return { label: `Lage ${i + 1}`, seconds: 60, sub: 2, text: `${lageText(i, all[i])}: aufwärts und abwärts. Grundton ${r} in der Lage suchen und bewusst hören.`, pattern: padBar([...up, ...down.slice(1)], 2) };
+  });
+  const fill: Phase[] = today.map((i) => {
+    const j = neighbour(all, i);
+    const a = pathUpDown(all[j]);
+    const b = pathUpDown(all[i]);
+    return {
+      label: 'Verbinden',
+      seconds: 60,
+      sub: 2,
+      text: `Lage ${j + 1} aufwärts, Lage ${i + 1} abwärts: Die beiden Lagen teilen sich Töne – dort wechselt die Hand ohne Pause.`,
+      pattern: padBar([...a.up, ...b.down], 2),
+    };
+  });
+  fill.push(...fullNeck(count));
+  phases.push(...fill.slice(0, Math.max(0, minutes - phases.length)));
+  const shown = today.flatMap((i) => [all[i], all[neighbour(all, i)]]);
   return {
-    key: 'C7',
-    module: 'C',
-    num: 7,
-    title: 'Zweite Lage',
-    focus: 'scales',
-    intro: `Dieselbe Skala ${positionText(path2)}, diesmal ab dem Grundton ${r} auf der tiefsten Saite. Zwei Lagen, die sich überlappen, decken schon einen großen Teil des Griffbretts ab.`,
-    map: mapAround(sc, [...path, ...path2]),
-    phases: [
-      { label: 'Minute 1', seconds: 60, sub: 2, text: `Zweite Lage ${positionText(path2)}: aufwärts und abwärts.`, pattern: padBar([...p2.up, ...p2.down.slice(1)], 2) },
-      { label: 'Minute 2', seconds: 60, sub: 2, text: `Lagen verbinden: in Lage 1 (${positionText(path)}) aufwärts, in Lage 2 abwärts.`, pattern: padBar([...p1.up, ...p2.down], 2) },
-      { label: 'Minute 3', seconds: 60, sub: 2, text: `Alle ${r} in beiden Lagen suchen und laut benennen. Dann eine kurze Phrase, die in Lage 1 beginnt und in Lage 2 endet.`, metronome: false },
-    ],
-    tracksTempo: false,
-    scaleId: sc.id,
-    root: sc.root,
+    ...base,
+    title: 'Lagen',
+    intro: `${sc.name} hat ${count} Lagen, die zusammen das ganze Griffbrett abdecken. Heute neu: ${today.map((i) => `Lage ${i + 1}`).join(', ')}. Jede Lage hat dieselbe Form in jeder Tonart – nur der Startbund ändert sich mit dem Grundton.`,
+    map: mapAround(sc, shown.flat()),
+    phases: phases.slice(0, minutes),
   };
 }
 
@@ -761,32 +831,6 @@ function scaleRecall(sc: ScaleDef, map: FretMap): Exercise {
     tracksTempo: false,
     scaleId: sc.id,
     root: sc.root,
-  };
-}
-
-function scaleTranspose(sc: ScaleDef, path: Pos[]): Exercise {
-  const t = getScale(sc.id, sc.root + 5);
-  const tp = sixStringPath(t);
-  const { up, down } = pathUpDown(tp);
-  const octave = oneStringOctave(t);
-  const oUp = octave.map((p) => n(p.s, p.f));
-  const shift = tp[0].f - path[0].f;
-  return {
-    key: 'C8',
-    module: 'C',
-    num: 8,
-    title: 'Transponieren',
-    focus: 'scales',
-    intro: `Gleiches Griffbild, neuer Grundton: ${t.name}. Die Form bleibt – sie beginnt nur ${Math.abs(shift)} Bünde ${shift > 0 ? 'höher' : 'tiefer'} (Bund ${tp[0].f} statt ${path[0].f}). So funktioniert jede Skala in jeder Tonart.`,
-    map: mapAround(t, tp),
-    phases: [
-      { label: 'Minute 1', seconds: 60, sub: 2, text: `${t.name}: das ${stringsWord()}-Saiten-Griffbild ${positionText(tp)} auf- und abwärts.`, pattern: padBar([...up, ...down.slice(1)], 2) },
-      { label: 'Minute 2', seconds: 60, sub: 2, text: `Ein-Saiten-Oktave auf der ${octaveText(octave)}: ${noteName(t.root)} bis ${noteName(t.root)}.`, pattern: padBar([...oUp, ...[...oUp].reverse().slice(1)], 2) },
-    ],
-    tracksTempo: false,
-    drone: true,
-    scaleId: t.id,
-    root: t.root,
   };
 }
 
@@ -816,15 +860,19 @@ function scaleMusic(ctx: BuildCtx, path: Pos[]): Exercise {
 /** The scale block of the day: 6 minutes, depending on the day within the block. */
 export function scaleBlock(ctx: BuildCtx): Exercise[] {
   const sc = ctx.scale;
-  const path = sixStringPath(sc);
+  const all = scalePositions(sc);
+  const path = all[0];
   const map = mapAround(sc, path);
-  switch (ctx.stage ?? 'learn') {
+  const stage = ctx.stage ?? 'learn';
+  const day = ctx.blockDay ?? { index: stage === 'learn' ? 0 : stage === 'deepen' ? 1 : 2, total: 3 };
+  const today = positionSchedule(all.length, day.total)[day.index % day.total] ?? [];
+  switch (stage) {
     case 'learn':
       return [scaleListen(sc, map), scaleFind(sc, map, path)];
     case 'deepen':
-      return [scaleSequences(sc, map, path), scaleSecondPosition(sc, path)];
+      return [scaleSequences(sc, map, path), scalePositionsEx(sc, all, today, 4)];
     case 'apply':
-      return [scaleRecall(sc, map), scaleTranspose(sc, path), scaleMusic(ctx, path)];
+      return [scaleRecall(sc, map), scalePositionsEx(sc, all, today, 2), scaleMusic(ctx, path)];
   }
 }
 
@@ -1259,7 +1307,7 @@ function e8(ctx: BuildCtx): Exercise {
     variant: orig ? undefined : `Arpeggio ${c.name} (${c.roman})`,
     phases: [
       { label: 'Minute 1', seconds: 60, sub: 2, text: 'Achtel. Langsam genug, dass jeder Ton gleich laut und getrennt klingt.', pattern: [...sweep, ...sweep] },
-      { label: 'Minute 2', seconds: 60, sub: 3, text: 'Triolen: ein Durchgang pro Takt. Nur wenn Minute 1 sauber war – sonst bei Achteln bleiben.', pattern: sweep },
+      { label: 'Minute 2', seconds: 60, sub: 3, alt: 2, text: 'Triolen: ein Durchgang pro Takt. Nur wenn Minute 1 sauber war – sonst bei Achteln bleiben.', pattern: sweep },
     ],
     tracksTempo: true,
   };
@@ -1470,16 +1518,18 @@ export const MODULE_INFO = {
   D: { name: 'Polyrhythmus', short: '3:2, 2:3, 4:3, 3:4, Gruppen über 4/4' },
   E: { name: 'Zusatz-Technik', short: 'Tremolo, Lagenwechsel, Oktaven, Griffbrett, Legato, Sweep-Picking' },
   R: { name: 'Rhythmus', short: 'Unterteilungen, Gallop, Synkopen, Stopps' },
+  W: { name: 'Riff der Woche', short: 'Ein Riff pro Woche: lernen, zusammensetzen, Tempo, auswendig' },
   K: { name: 'Akkorde', short: 'Powerchords und Dreiklänge' },
   I: { name: 'Improvisation', short: 'Über die Akkordfolge spielen' },
 } as const;
 
 /** The daily 30 minutes, in playing order. */
 export const BLOCK_INFO: Record<BlockId, { name: string; minutes: number; short: string }> = {
-  speed: { name: 'Geschwindigkeit', minutes: 6, short: 'Wechselschlag, Bursts, Legato, Sweeps – das Tempo wächst mit' },
-  accuracy: { name: 'Treffsicherheit', minutes: 6, short: 'Saitensprünge, Lagenwechsel, Oktaven, Legato, Sweeps' },
+  speed: { name: 'Geschwindigkeit', minutes: 4, short: 'Wechselschlag, Bursts, Legato, Sweeps – das Tempo wächst mit' },
+  accuracy: { name: 'Treffsicherheit', minutes: 4, short: 'Saitensprünge, Lagenwechsel, Oktaven, Legato, Sweeps' },
   rhythm: { name: 'Rhythmus & Timing', minutes: 3, short: 'Unterteilungen, Gallop, Synkopen, Polyrhythmen' },
-  scale: { name: 'Skala', minutes: 6, short: 'Hören, finden, vertiefen – in wechselnden Tonarten' },
+  riff: { name: 'Riff der Woche', minutes: 4, short: 'Ein Riff pro Woche – jede Lektion ein Schritt weiter' },
+  scale: { name: 'Skala', minutes: 6, short: 'Hören, finden, alle Lagen – in wechselnden Tonarten' },
   chords: { name: 'Akkordfolge', minutes: 6, short: 'Powerchords und Dreiklänge sauber wechseln' },
   improv: { name: 'Anwenden', minutes: 3, short: 'Mit der Skala über die Akkordfolge improvisieren' },
 };

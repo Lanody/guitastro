@@ -1,8 +1,10 @@
 import { BLOCK_ORDER, BUILDERS, scaleBlock, type BuildCtx, type ScaleStage } from '../data/exercises';
+import { riffBlock, type RiffWeek } from '../data/riffs';
 import { rngFrom } from '../data/rng';
 import type { BlockId, Exercise, ModuleId } from '../data/types';
 import { namesText, progressionFor, romanText, type Chord } from '../music/chords';
 import { ROOT_ROTATION, SCALE_ROTATION, getScale } from '../music/scales';
+import { weekStart } from './progress';
 import { daysBetween, todayKey, type AppState, type DayFocus, type Rating, type TempoState } from './state';
 
 export const UNLOCK_DAYS = 14;
@@ -19,11 +21,11 @@ export function variationUnlocked(state: AppState, today = todayKey()) {
 /**
  * Rotating pools for the technique blocks: each day takes the next `perDay`
  * exercises, so the mix changes daily while every exercise still comes back
- * every three days – often enough for the tempo to grow.
+ * within five lessons – often enough for the tempo to grow.
  */
 export const POOLS: Record<'speed' | 'accuracy' | 'rhythm', { keys: string[]; perDay: number }> = {
-  speed: { keys: ['A1', 'A6', 'E5', 'B1', 'E1', 'A4', 'A3', 'B5', 'E8'], perDay: 3 },
-  accuracy: { keys: ['A2', 'E4', 'E6', 'A5', 'E2', 'E7', 'B2', 'E3', 'B4'], perDay: 3 },
+  speed: { keys: ['A1', 'A6', 'E5', 'B1', 'E1', 'A4', 'A3', 'B5', 'E8'], perDay: 2 },
+  accuracy: { keys: ['A2', 'E4', 'E6', 'A5', 'E2', 'E7', 'B2', 'E3', 'B4'], perDay: 2 },
   rhythm: { keys: ['R1', 'D1', 'R2', 'D4', 'R3', 'D2', 'R4', 'D3'], perDay: 1 },
 };
 
@@ -35,19 +37,42 @@ export function poolKeys(block: keyof typeof POOLS, day: number) {
   return Array.from({ length: perDay }, (_, i) => keys[(day * perDay + i) % keys.length]);
 }
 
+/** Lessons until a pool exercise comes back. */
+export const poolCycle = (block: keyof typeof POOLS) => Math.ceil(POOLS[block].keys.length / POOLS[block].perDay);
+
+/** Day within the scale block (0-based) and the block's length. */
+export function scaleDay(state: AppState) {
+  const total = Math.max(1, state.settings.scaleSessions);
+  return { index: state.scale.sessions % total, total };
+}
+
 /** Which day of the scale block this is: first day learn, last day apply, between deepen. */
 export function scaleStage(state: AppState): ScaleStage {
-  const total = Math.max(1, state.settings.scaleSessions);
-  const i = state.scale.sessions % total;
-  if (i === 0) return 'learn';
-  return i === total - 1 ? 'apply' : 'deepen';
+  const { index, total } = scaleDay(state);
+  if (index === 0) return 'learn';
+  return index === total - 1 ? 'apply' : 'deepen';
 }
 
 export const STAGE_INFO: Record<ScaleStage, string> = {
-  learn: 'Kennenlernen: hören und finden',
-  deepen: 'Vertiefen: Sequenzen und zweite Lage',
-  apply: 'Festigen: abrufen, transponieren, benutzen',
+  learn: 'Kennenlernen: hören, finden, Lage 1',
+  deepen: 'Vertiefen: Sequenzen und neue Lagen',
+  apply: 'Festigen: abrufen, Lagen verbinden, benutzen',
 };
+
+const hasRiff = (s: AppState['sessions'][number]) => !!s.blocks?.includes('riff');
+
+/**
+ * Riff of the week: every calendar week (Monday to Sunday) with lessons brings
+ * the next riff – weeks without practice don't skip one. The lessons already
+ * saved this week decide the step (learn, put together, tempo, by heart).
+ */
+export function riffWeek(state: AppState, today = todayKey()): RiffWeek {
+  const start = weekStart(new Date(today + 'T12:00:00')).getTime();
+  const before = state.sessions.filter((s) => hasRiff(s) && Date.parse(s.date) < start);
+  const weeks = new Set(before.map((s) => weekStart(new Date(s.date)).getTime()));
+  const lesson = state.sessions.filter((s) => hasRiff(s) && Date.parse(s.date) >= start).length;
+  return { index: weeks.size, lesson };
+}
 
 export function dayFocus(state: AppState, today = todayKey()): DayFocus {
   if (!variationUnlocked(state, today)) return 'standard';
@@ -96,18 +121,22 @@ export function buildPlan(state: AppState, today = todayKey()): Plan {
   const stage = scaleStage(state);
   const progression = progressionFor(scale, day);
   const seed = `${today}#${day}#${state.reroll}`;
-  const ctxFor = (k: string): BuildCtx => ({ rng: rngFrom(`${seed}:${k}`), vary, scale, stage, progression });
+  const blockDay = scaleDay(state);
+  const riff = riffWeek(state, today);
+  const ctxFor = (k: string): BuildCtx => ({ rng: rngFrom(`${seed}:${k}`), vary, scale, stage, blockDay, progression, riff });
   const trim = (e: Exercise) => (TRIM[e.key] ? { ...e, phases: TRIM[e.key].map((i) => e.phases[i]) } : e);
   const exercises: Exercise[] = [];
   for (const block of BLOCK_ORDER) {
     const list =
       block === 'scale'
         ? scaleBlock(ctxFor('scale'))
-        : block === 'chords'
-          ? [BUILDERS.K1(ctxFor('K1'))]
-          : block === 'improv'
-            ? [BUILDERS.I1(ctxFor('I1'))]
-            : poolKeys(block, day).map((k) => trim(BUILDERS[k](ctxFor(k))));
+        : block === 'riff'
+          ? [riffBlock(ctxFor('riff'))]
+          : block === 'chords'
+            ? [BUILDERS.K1(ctxFor('K1'))]
+            : block === 'improv'
+              ? [BUILDERS.I1(ctxFor('I1'))]
+              : poolKeys(block, day).map((k) => trim(BUILDERS[k](ctxFor(k))));
     exercises.push(...list.map((e) => ({ ...e, block })));
   }
   return {

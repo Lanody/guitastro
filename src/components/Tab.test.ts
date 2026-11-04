@@ -4,7 +4,7 @@ import { rngFrom } from '../data/rng';
 import type { Step } from '../data/types';
 import { countLabel, fillBars, padBar } from '../music/meter';
 import { SCALES, getScale } from '../music/scales';
-import { groupLines, layoutTab, sustained, withRestBeats } from './Tab';
+import { groupLines, layoutTab, palmMarks, sustained, withRestBeats } from './Tab';
 
 const ctx = { rng: rngFrom('t'), vary: false, scale: getScale('dorian') };
 const [a1, , a3, a4, a5, a6] = moduleA(ctx);
@@ -49,7 +49,15 @@ describe('tab layout (one column per step, equal time)', () => {
     expect(layoutTab(48, 4, undefined, 2, 3).map((l) => l.length)).toEqual([24, 24]);
   });
   it('held notes ring on their string until the next note or rest', () => {
-    expect(sustained([note(5), 'hold', 'hold', 'rest', 'hold', { s: 2, f: 3 }, 'hold'])).toEqual([-1, 5, 5, -1, -1, -1, 2]);
+    expect(sustained([note(5), 'hold', 'hold', 'rest', 'hold', { s: 2, f: 3 }, 'hold'])).toEqual([[], [5], [5], [], [], [], [2]]);
+  });
+  it('a held power chord rings on all its strings', () => {
+    const chord: Step = { s: 0, f: 3, chord: [{ s: 1, f: 3 }, { s: 2, f: 3 }] };
+    expect(sustained([chord, 'hold', 'rest'])).toEqual([[], [0, 1, 2], []]);
+  });
+  it('palm-mute marks: PM at the start of a run, dashes while it lasts', () => {
+    const pm = (f: number): Step => ({ s: 0, f, pm: true });
+    expect(palmMarks([pm(0), 'hold', pm(0), { s: 0, f: 3 }, 'hold', pm(0), 'rest', 'rest'])).toEqual(['PM', '–', '–', '', '', 'PM', '', '']);
   });
 });
 

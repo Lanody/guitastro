@@ -10,19 +10,23 @@ export interface Note {
   f: number;
   t?: Tech;
   stroke?: Stroke;
+  /** Further notes struck together with this one (power chords in riffs). */
+  chord?: Pos[];
+  /** Palm-muted. */
+  pm?: boolean;
 }
 /** One grid step: a note, a rest, or the previous note ringing on. */
 export type Step = Note | 'rest' | 'hold';
 
 /**
  * Where an exercise comes from: A/B/C = booklet modules (C = scales), D = polyrhythm,
- * E = extra technique, R = rhythm, K = chords (Akkorde), I = improvisation.
+ * E = extra technique, R = rhythm, W = riff of the week, K = chords (Akkorde), I = improvisation.
  */
-export type ModuleId = 'A' | 'B' | 'C' | 'D' | 'E' | 'R' | 'K' | 'I';
+export type ModuleId = 'A' | 'B' | 'C' | 'D' | 'E' | 'R' | 'W' | 'K' | 'I';
 export type Focus = 'speed' | 'accuracy' | 'creativity' | 'scales' | 'rhythm' | 'chords';
 
 /** The six parts of the daily 30 minutes. */
-export type BlockId = 'speed' | 'accuracy' | 'rhythm' | 'scale' | 'chords' | 'improv';
+export type BlockId = 'speed' | 'accuracy' | 'rhythm' | 'riff' | 'scale' | 'chords' | 'improv';
 
 /** A chord progression shown (and optionally played along) during a phase. */
 export interface PhaseChords {
@@ -40,6 +44,8 @@ export interface Phase {
   seconds: number;
   /** Grid steps per beat: 2 = eighths, 4 = sixteenths. */
   sub: number;
+  /** Slower note value the player may fall back to in this phase (switch shown only then). */
+  alt?: number;
   /** Beats per bar (time signature x/4); default 4 = 4/4. */
   beats?: number;
   text: string;
@@ -58,12 +64,17 @@ export interface Phase {
   chords?: PhaseChords;
   /** Backing chords sound by default in this phase. */
   backing?: boolean;
+  /** The app plays the pattern along (riffs); can be switched on and off. */
+  demo?: boolean;
+  /** Tab covered (play from memory); can be revealed. */
+  hideTab?: boolean;
 }
 
 export type Widget = 'listen' | 'find' | 'recall' | 'notes';
 
 export interface MapDot extends Pos {
-  kind: 'root' | 'color' | 'note' | 'target';
+  /** dim = scale note outside the position shown. */
+  kind: 'root' | 'color' | 'note' | 'target' | 'dim';
 }
 
 export interface FretMap {

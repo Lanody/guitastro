@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fretMidi, inScale, midiToPc, oneStringOctave, secondPosition, sixStringPath, twoStringGroup } from './theory';
+import { fretMidi, inScale, midiToPc, oneStringOctave, scalePositions, sixStringPath, twoStringGroup } from './theory';
 import { SCALES, getScale } from './scales';
 
 const frets = (path: { s: number; f: number }[]) => {
@@ -68,7 +68,7 @@ describe('scales in every key', () => {
       const shape = rel(sixStringPath(card));
       for (let root = 0; root < 12; root++) {
         const sc = getScale(card.id, root);
-        for (const path of [sixStringPath(sc), secondPosition(sc)]) {
+        for (const path of scalePositions(sc)) {
           expect(new Set(path.map((p) => p.s)).size, `${sc.name} uses all strings`).toBe(6);
           const midis = path.map((p) => fretMidi(p.s, p.f));
           midis.forEach((m, i) => i && expect(m).toBeGreaterThan(midis[i - 1]));

@@ -303,11 +303,35 @@ function placed(scale: { intervals: number[]; root?: number }, fret: number, max
   return tries[0];
 }
 
-/** Second position: the same scale from the tonic on the low string – five or seven frets away from the first. */
-export function secondPosition(scale: { intervals: number[]; root?: number }): Pos[] {
-  const root = scale.root ?? ROOT_PC;
-  return placed(scale, midiToPc(root - TUNING[0]), 4);
+/**
+ * All positions of a scale across the neck: one per scale note on the lowest
+ * string (seven for seven-note scales, five for pentatonics), each over all
+ * strings. Position 1 is the home shape (`sixStringPath`); the others follow
+ * up the neck from there, then the ones below it, nearest first – so every new
+ * position overlaps one already learned. Together they cover every scale note
+ * on every string; above fret 12 the shapes repeat.
+ */
+export function scalePositions(scale: { intervals: number[]; root?: number }): Pos[][] {
+  const home = sixStringPath(scale);
+  const h = home[0].f;
+  const above: Pos[][] = [];
+  const below: Pos[][] = [];
+  for (const iv of scale.intervals) {
+    const pc = midiToPc((scale.root ?? ROOT_PC) + iv - TUNING[0]);
+    if (pc === midiToPc(h)) continue;
+    const variants = [pc, pc + 12].filter((f) => f <= 17).map((f) => sixStringPath(scale, TUNING[0] + f)).filter(playable);
+    const up = variants.filter((p) => p[0].f > h).sort((a, b) => a[0].f - b[0].f)[0];
+    const down = variants.filter((p) => p[0].f < h).sort((a, b) => b[0].f - a[0].f)[0];
+    if (up) above.push(up);
+    else if (down) below.push(down);
+  }
+  above.sort((a, b) => a[0].f - b[0].f);
+  below.sort((a, b) => b[0].f - a[0].f);
+  return [home, ...above, ...below];
 }
+
+/** Lowest and highest fret of a position. */
+export const fretRange = (path: Pos[]): [number, number] => [Math.min(...path.map((p) => p.f)), Math.max(...path.map((p) => p.f))];
 
 /**
  * One octave tonic → tonic on a single string (horizontal path). Prefers the

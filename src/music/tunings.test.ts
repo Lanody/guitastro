@@ -15,7 +15,7 @@ import {
   inScale,
   midiToPc,
   oneStringOctave,
-  secondPosition,
+  scalePositions,
   setTuning,
   sixStringPath,
 } from './theory';
@@ -67,7 +67,9 @@ for (const t of TUNINGS) {
       for (const card of SCALES) {
         for (const root of ROOT_ROTATION) {
           const sc = getScale(card.id, root);
-          for (const path of [sixStringPath(sc), secondPosition(sc)]) {
+          const positions = scalePositions(sc);
+          expect(positions[0], `${sc.name} home position first`).toEqual(sixStringPath(sc));
+          for (const path of positions) {
             const midis = path.map((p) => fretMidi(p.s, p.f));
             midis.forEach((m, i) => {
               expect(inScale(sc, m), `${sc.name}`).toBe(true);
@@ -87,6 +89,25 @@ for (const t of TUNINGS) {
             expect(s).toBeLessThanOrEqual(TOP);
             expect(inScale(sc, fretMidi(s, f)), `${sc.name} motif`).toBe(true);
           });
+        }
+      }
+    });
+
+    it('scale positions cover the whole fretboard', () => {
+      setTuning(t.id);
+      for (const card of SCALES) {
+        for (const root of ROOT_ROTATION) {
+          const sc = getScale(card.id, root);
+          const positions = scalePositions(sc);
+          // One position per scale note at most, never the same shape twice. Shapes that would need
+          // frets above 17 drop out (blues on seven-string drop tunings keeps four) – the rest still cover all.
+          expect(positions.length, sc.name).toBeLessThanOrEqual(sc.intervals.length);
+          expect(positions.length, sc.name).toBeGreaterThanOrEqual(card.id === 'blues' ? 4 : Math.min(5, sc.intervals.length));
+          expect(new Set(positions.map((p) => p[0].f)).size, `${sc.name} distinct starts`).toBe(positions.length);
+          // Every scale note on every string (frets 0–11; above, the shapes repeat) lies in some position.
+          const covered = new Set(positions.flat().map((p) => `${p.s}:${p.f % 12}`));
+          for (let s = 0; s < STRINGS; s++)
+            for (let f = 0; f < 12; f++) if (inScale(sc, fretMidi(s, f))) expect(covered.has(`${s}:${f}`), `${sc.name} string ${s} fret ${f}`).toBe(true);
         }
       }
     });
