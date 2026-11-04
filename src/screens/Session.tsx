@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { chime, droneOff, droneOn, metronome, softCue } from '../audio/engine';
+import { chime, droneOff, droneOn, metronome, playTab, softCue, type TabPreview } from '../audio/engine';
 import { ChordChart } from '../components/ChordChart';
 import { Fretboard } from '../components/Fretboard';
 import { HitTrainer } from '../components/HitTrainer';
 import { Seg } from '../components/Seg';
-import { Tab } from '../components/Tab';
+import { Tab, playback } from '../components/Tab';
 import { ListenWidget, RecallWidget } from '../components/Widgets';
 import { BLOCK_INFO, FOCUS_LABEL, MODULE_INFO } from '../data/exercises';
 import { riffEvents } from '../data/riffs';
@@ -61,6 +61,9 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
   const [demo, setDemo] = useState(false);
   const [showTab, setShowTab] = useState(false);
   const [chordIdx, setChordIdx] = useState(-1);
+  /** Tab playback: column sounding now (-1 = counting in), null = not playing. */
+  const [playhead, setPlayhead] = useState<number | null>(null);
+  const preview = useRef<TabPreview | null>(null);
   const practiced = useRef(0);
   const lastTick = useRef(0);
   const cueMinute = useRef(-1);
@@ -178,13 +181,45 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
     return () => void lock?.release().catch(() => {});
   }, []);
 
+  // Tab playback: hear the tab once in the current tempo (one bar counted in), the playing column lit up.
+  const played = useMemo(() => shown && playback(shown, sub, beats, phase.groups), [shown, sub, beats, phase.groups]);
+  const stopListen = useCallback(() => {
+    preview.current?.stop();
+    preview.current = null;
+    setPlayhead(null);
+  }, []);
+  useEffect(() => stopListen, [played, bpm, idx, stopListen]);
+  const listening = playhead !== null;
+  useEffect(() => {
+    if (!listening || !played) return;
+    let raf = 0;
+    const tick = () => {
+      const p = preview.current;
+      if (!p) return;
+      if (p.done()) return stopListen();
+      const i = p.stepAt();
+      setPlayhead(i < 0 ? -1 : played.column(i));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [listening, played, stopListen]);
+  const listen = () => {
+    if (listening) return stopListen();
+    if (!played) return;
+    setRunning(false);
+    preview.current = playTab(riffEvents(played.steps), { bpm, sub, beatsPerBar: beats, volume: settings.clickVolume });
+    setPlayhead(-1);
+  };
+
   const setBpm = useCallback((v: number) => setBpms((b) => ({ ...b, [ex.key]: Math.min(240, Math.max(30, Math.round(v))) })), [ex.key]);
 
   const toggleRun = useCallback(() => {
     if (stage !== 'play') return;
     if (!running && elapsed === 0 && ex.drone && droneAuto) setDrone(true);
+    if (!running) stopListen();
     setRunning((r) => !r);
-  }, [stage, running, elapsed, ex.drone, droneAuto]);
+  }, [stage, running, elapsed, ex.drone, droneAuto, stopListen]);
 
   const finishSession = useCallback(
     (res: ExerciseResult[]) => {
@@ -345,15 +380,22 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
 
       {shown && (
         <section className="card tab-card">
-          <div className="tab-meta muted small">
-            {beats}/4 · {SUB_LABEL[sub]} · {bpm} BPM
+          <div className="tab-head">
+            <div className="tab-meta muted small">
+              {beats}/4 · {SUB_LABEL[sub]} · {bpm} BPM
+            </div>
+            {!(phase.hideTab && !showTab) && (
+              <button className={`btn small ${listening ? 'on' : 'ghost'}`} onClick={listen} aria-label={listening ? 'Abspielen stoppen' : 'Tab im aktuellen Tempo anhören'}>
+                {listening ? (playhead === -1 ? '■ Einzählen …' : '■ Stopp') : '▶ Anhören'}
+              </button>
+            )}
           </div>
           {phase.hideTab && !showTab ? (
             <button className="btn ghost wide" onClick={() => setShowTab(true)}>
               Tab ist abgedeckt – nur bei einer Lücke aufdecken
             </button>
           ) : (
-            <Tab steps={shown} sub={sub} beats={beats} groups={phase.groups} />
+            <Tab steps={shown} sub={sub} beats={beats} groups={phase.groups} playhead={playhead ?? undefined} />
           )}
         </section>
       )}

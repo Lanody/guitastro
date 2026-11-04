@@ -48,7 +48,15 @@ export interface MetronomeOptions {
   click: boolean;
   chords: MetronomeChords | null;
   /** Riff voice: per grid step the notes struck there (null = nothing new), looping over whole bars. */
-  riff: { sub: number; events: ({ midis: number[]; len: number; pm: boolean } | null)[] } | null;
+  riff: { sub: number; events: (TabEvent | null)[] } | null;
+}
+
+/** Notes struck on one grid step of a tab, how many steps they last, palm-muted, hammer-on/pull-off. */
+export interface TabEvent {
+  midis: number[];
+  len: number;
+  pm: boolean;
+  legato?: boolean;
 }
 
 const LOOKAHEAD = 0.12;
@@ -152,11 +160,7 @@ export class Metronome {
         this.voices.push({ osc, time: this.nextTime });
       }
       const ev = riff?.events.length && riff.sub === this.sub ? riff.events[(this.beat * this.sub + this.inBeat) % riff.events.length] : null;
-      if (ev) {
-        const step = 60 / bpm / this.sub;
-        const dur = ev.pm ? Math.min(0.14, step * ev.len) : step * ev.len + 0.05;
-        this.strums.push(strum(ctx, out, this.nextTime, ev.midis, ev.pm ? 0.45 : 0.6, dur));
-      }
+      if (ev) this.strums.push(tabVoice(ctx, out, this.nextTime, ev, 60 / bpm / this.sub));
       this.nextTime += 60 / bpm / this.sub;
       if (++this.inBeat >= this.sub) {
         this.inBeat = 0;
@@ -307,6 +311,59 @@ function strum(ctx: AudioContext, out: AudioNode, time: number, midis: number[],
   const each = level / Math.sqrt(Math.max(1, midis.length));
   const voices = [...midis].sort((a, b) => a - b).map((m, i) => pluckVoice(ctx, out, m, time + i * 0.014, dur, each));
   return { end: time + dur + 0.1, stop: (at) => voices.forEach((v) => v.stop(at)) };
+}
+
+/** One tab step: palm-muted notes short and dry, hammer-ons and pull-offs softer than picked notes. */
+function tabVoice(ctx: AudioContext, out: AudioNode, time: number, ev: TabEvent, step: number): Voice {
+  const dur = ev.pm ? Math.min(0.14, step * ev.len) : step * ev.len + 0.05;
+  return strum(ctx, out, time, ev.midis, ev.pm ? 0.45 : ev.legato ? 0.35 : 0.6, dur);
+}
+
+// ---------------------------------------------------------------------------
+// Tab preview — plays a tab once in time with a beat click, after a one-bar
+// count-in, so the player hears what the exercise asks for.
+// ---------------------------------------------------------------------------
+
+export interface TabPreview {
+  /** Grid step sounding now (negative during the count-in). */
+  stepAt: () => number;
+  done: () => boolean;
+  stop: () => void;
+}
+
+let preview: TabPreview | null = null;
+
+export function playTab(events: (TabEvent | null)[], o: { bpm: number; sub: number; beatsPerBar: number; volume: number }): TabPreview {
+  preview?.stop();
+  const { ctx, out } = audio();
+  const beat = 60 / o.bpm;
+  const step = beat / o.sub;
+  const t0 = ctx.currentTime + 0.1 + o.beatsPerBar * beat;
+  const end = t0 + events.length * step;
+  const clicks: OscillatorNode[] = [];
+  for (let b = -o.beatsPerBar; b * o.sub < events.length; b++) {
+    const one = (((b % o.beatsPerBar) + o.beatsPerBar) % o.beatsPerBar) === 0;
+    clicks.push(click(ctx, out, t0 + b * beat, one ? 1 : 0.6, o.volume, one ? 1600 : 1100));
+  }
+  const voices = events.flatMap((ev, i) => (ev ? [tabVoice(ctx, out, t0 + i * step, ev, step)] : []));
+  const handle: TabPreview = {
+    stepAt: () => Math.floor((ctx.currentTime - t0) / step),
+    done: () => ctx.currentTime >= end,
+    stop() {
+      const now = ctx.currentTime;
+      for (const c of clicks) {
+        try {
+          c.stop();
+        } catch {
+          /* already stopped */
+        }
+      }
+      voices.forEach((v) => v.stop(now));
+      if (preview === handle) preview = null;
+    },
+  };
+  preview = handle;
+  return handle;
 }
 
 /** Plays a sequence of MIDI notes (null = rest) as even eighths at `bpm`. */

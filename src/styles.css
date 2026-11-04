@@ -720,6 +720,16 @@ button {
   margin-bottom: 6px;
   font-variant-numeric: tabular-nums;
 }
+.tab-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.tab-head .tab-meta {
+  margin-bottom: 0;
+}
 .tab {
   display: flex;
   flex-direction: column;
@@ -820,6 +830,21 @@ button {
 }
 .tab-count.rest {
   opacity: 0.4;
+}
+/* Playback: the column sounding now. */
+.tab-cell.now,
+.tab-count.now {
+  background-color: var(--teal-soft);
+}
+.tab-cell.now .tab-num {
+  background: var(--teal);
+  color: var(--on-accent);
+}
+.tab-cell.now .tab-tech {
+  color: inherit;
+}
+.tab-count.now {
+  opacity: 1;
 }
 
 /* Fretboard -------------------------------------------------------------- */

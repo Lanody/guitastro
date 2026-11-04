@@ -59,8 +59,9 @@ describe('riff block', () => {
   it('play-along: chords sound together, held notes last until the next step', () => {
     const steps = riffBars(RIFFS[0])[0];
     const ev = riffEvents(steps);
-    expect(ev[0]).toEqual({ midis: [36], len: 2, pm: true });
+    expect(ev[0]).toEqual({ midis: [36], len: 2, pm: true, legato: false });
     expect(ev[1]).toBeNull();
-    expect(ev[8]).toEqual({ midis: [39, 46, 51], len: 4, pm: false });
+    expect(ev[8]).toEqual({ midis: [39, 46, 51], len: 4, pm: false, legato: false });
+    expect(riffEvents([{ s: 0, f: 3 }, { s: 0, f: 5, t: 'h' }]).map((e) => e?.legato)).toEqual([false, true]);
   });
 });

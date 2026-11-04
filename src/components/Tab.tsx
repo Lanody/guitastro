@@ -1,6 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Note, Step } from '../data/types';
-import { DEFAULT_BEATS, barSteps, countLabel } from '../music/meter';
+import { DEFAULT_BEATS, barSteps, countLabel, padBar } from '../music/meter';
 import { STRING_SHORT, TOP, type Pos } from '../music/theory';
 
 interface Props {
@@ -15,6 +15,8 @@ interface Props {
   barLen?: number;
   /** Group view: note groups of n steps, each bar's rests shrunk to one column per beat; one line (two on narrow screens). */
   groups?: number;
+  /** Column sounding right now (tab playback), highlighted. */
+  playhead?: number;
 }
 
 /**
@@ -104,7 +106,28 @@ export function withRestBeats(steps: Step[], group: number, sub: number, beats =
   return { steps: out, bar, count };
 }
 
-export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStrings, barLen, groups }: Props) {
+/**
+ * The tab in time, for playback: the steps to play and, per step, the column it is
+ * shown in (-1 = none). Group view plays each group followed by the rest of its bar.
+ */
+export function playback(steps: Step[], sub: number, beats = DEFAULT_BEATS, group?: number) {
+  if (!group) return { steps, column: (i: number) => i };
+  const len = barSteps(sub, beats);
+  const played = Math.ceil(group / sub);
+  const shownBar = group + Math.max(0, beats - played);
+  const out: Step[] = [];
+  for (let i = 0; i < steps.length; i += group) out.push(...padBar(steps.slice(i, i + group), sub, beats));
+  const column = (i: number) => {
+    const p = i % len;
+    const base = Math.floor(i / len) * shownBar;
+    if (p < group) return base + p;
+    const b = Math.floor(p / sub);
+    return b >= played ? base + group + b - played : -1;
+  };
+  return { steps: out, column };
+}
+
+export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStrings, barLen, groups, playhead }: Props) {
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
   const box = useRef<HTMLDivElement>(null);
   // Narrow screens: if a line overflows, first tighten the columns (fit 1), then one bar per line (fit 2).
@@ -170,7 +193,7 @@ export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStr
             const rest = st === 'rest';
             const barStart = counted && c > 0 && i % bar === 0;
             const [label, beat] = count(i);
-            const cls = `${rest ? ' rest' : ''}${barStart ? ' bar' : ''}`;
+            const cls = `${rest ? ' rest' : ''}${barStart ? ' bar' : ''}${i === playhead ? ' now' : ''}`;
             return [
               strokes ? (
                 <span key={`${i}-stroke`} className="tab-stroke" style={{ gridRow: 1, gridColumn: c + 2 }}>

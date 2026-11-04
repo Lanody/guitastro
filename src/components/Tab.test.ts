@@ -4,7 +4,7 @@ import { rngFrom } from '../data/rng';
 import type { Step } from '../data/types';
 import { countLabel, fillBars, padBar } from '../music/meter';
 import { SCALES, getScale } from '../music/scales';
-import { groupLines, layoutTab, palmMarks, sustained, withRestBeats } from './Tab';
+import { groupLines, layoutTab, palmMarks, playback, sustained, withRestBeats } from './Tab';
 
 const ctx = { rng: rngFrom('t'), vary: false, scale: getScale('dorian') };
 const [a1, a3, a4, a5, a6, b1, b4, b5] = ['A1', 'A3', 'A4', 'A5', 'A6', 'B1', 'B4', 'B5'].map((k) => BUILDERS[k](ctx));
@@ -32,6 +32,15 @@ describe('tab layout (one column per step, equal time)', () => {
     expect(g.steps.map((_, i) => g.count(i)[0])).toEqual(['1', 'e', '+', 'e', '2', '3', '4']);
     const d = withRestBeats(Array(8).fill(note(5)), 8, 4);
     expect(d.steps.map((_, i) => d.count(i)[0])).toEqual(['1', 'e', '+', 'e', '2', 'e', '+', 'e', '3', '4']);
+  });
+  it('playback: group view plays the rest of each bar, the playhead finds its column', () => {
+    const p = playback([note(7), note(8), note(10), note(8), note(5), note(7), note(8), note(7)], 4, 4, 4);
+    expect(p.steps).toHaveLength(32);
+    expect(p.steps.slice(4, 16).every((st) => st === 'rest')).toBe(true);
+    expect([0, 3, 4, 7, 8, 12, 16, 19, 20].map(p.column)).toEqual([0, 3, 4, 4, 5, 6, 7, 10, 11]);
+    const plain = playback(Array(8).fill(note(5)), 2);
+    expect(plain.steps).toHaveLength(8);
+    expect(plain.column(5)).toBe(5);
   });
   it('long patterns break at bar lines into equal lines', () => {
     expect(layoutTab(b1.pattern!.length, 2).map((l) => l.length)).toEqual([16, 16, 16]);

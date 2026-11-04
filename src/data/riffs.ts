@@ -12,6 +12,7 @@
 // Pitches are relative to the open lowest string, so a riff sounds the same in
 // every tuning (in its key); frets and grips follow from the tuning.
 
+import type { TabEvent } from '../audio/engine';
 import { powerGrip } from '../music/chords';
 import { barSteps } from '../music/meter';
 import { STRING_LONG, STRING_SHORT, TUNING, fretMidi, midiToPc } from '../music/theory';
@@ -181,13 +182,13 @@ export function riffBars(def: RiffDef): Step[][] {
   return Array.from({ length: Math.ceil(steps.length / len) }, (_, i) => steps.slice(i * len, (i + 1) * len));
 }
 
-/** What the app plays along: per grid step the sounding notes, how many steps they last, palm-muted or not. */
-export function riffEvents(steps: Step[]): ({ midis: number[]; len: number; pm: boolean } | null)[] {
+/** What the app plays along: per grid step the sounding notes, how many steps they last, palm-muted or legato. */
+export function riffEvents(steps: Step[]): (TabEvent | null)[] {
   return steps.map((st, i) => {
     if (typeof st !== 'object') return null;
     let len = 1;
     while (steps[i + len] === 'hold') len++;
-    return { midis: [st, ...(st.chord ?? [])].map((p) => fretMidi(p.s, p.f)), len, pm: !!st.pm };
+    return { midis: [st, ...(st.chord ?? [])].map((p) => fretMidi(p.s, p.f)), len, pm: !!st.pm, legato: st.t === 'h' || st.t === 'p' };
   });
 }
 
