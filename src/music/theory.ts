@@ -1,16 +1,99 @@
-// Drop-C tuning and scale engine.
-// String index 0 = lowest (thick) C string, 5 = high d string.
+// Tunings and scale engine. The booklet is written for Drop C on six strings;
+// every other tuning keeps its frets and shapes, only the note names move.
+// String index 0 = lowest (thickest) string, TOP = highest.
 
-export const TUNING = [36, 43, 48, 53, 57, 62]; // C2 G2 C3 F3 A3 D4 (MIDI)
-export const STRING_SHORT = ['C', 'G', 'C', 'F', 'A', 'd'];
-export const STRING_LONG = ['tiefe C-Saite', 'G-Saite', 'mittlere C-Saite', 'F-Saite', 'A-Saite', 'hohe d-Saite'];
+export interface Tuning {
+  id: string;
+  name: string;
+  /** Open strings as MIDI, low to high. */
+  strings: number[];
+  /** Short string names, low to high (highest in lower case, German H for B). */
+  names: string[];
+}
+
+export const TUNINGS: Tuning[] = [
+  { id: 'e-std', name: 'E-Standard', strings: [40, 45, 50, 55, 59, 64], names: ['E', 'A', 'D', 'G', 'H', 'e'] },
+  { id: 'eb-std', name: 'E♭-Standard', strings: [39, 44, 49, 54, 58, 63], names: ['E♭', 'A♭', 'D♭', 'G♭', 'B♭', 'e♭'] },
+  { id: 'd-std', name: 'D-Standard', strings: [38, 43, 48, 53, 57, 62], names: ['D', 'G', 'C', 'F', 'A', 'd'] },
+  { id: 'drop-d', name: 'Drop D', strings: [38, 45, 50, 55, 59, 64], names: ['D', 'A', 'D', 'G', 'H', 'e'] },
+  { id: 'drop-cs', name: 'Drop C♯', strings: [37, 44, 49, 54, 58, 63], names: ['C♯', 'G♯', 'C♯', 'F♯', 'A♯', 'd♯'] },
+  { id: 'drop-c', name: 'Drop C', strings: [36, 43, 48, 53, 57, 62], names: ['C', 'G', 'C', 'F', 'A', 'd'] },
+  { id: 'drop-b', name: 'Drop B', strings: [35, 42, 47, 52, 56, 61], names: ['H', 'F♯', 'H', 'E', 'G♯', 'c♯'] },
+  { id: 'drop-a', name: 'Drop A', strings: [33, 40, 45, 50, 54, 59], names: ['A', 'E', 'A', 'D', 'F♯', 'h'] },
+  { id: '7-b-std', name: 'H-Standard (7)', strings: [35, 40, 45, 50, 55, 59, 64], names: ['H', 'E', 'A', 'D', 'G', 'H', 'e'] },
+  { id: '7-drop-a', name: 'Drop A (7)', strings: [33, 40, 45, 50, 55, 59, 64], names: ['A', 'E', 'A', 'D', 'G', 'H', 'e'] },
+  { id: '7-a-std', name: 'A-Standard (7)', strings: [33, 38, 43, 48, 53, 57, 62], names: ['A', 'D', 'G', 'C', 'F', 'A', 'd'] },
+  { id: '7-drop-g', name: 'Drop G (7)', strings: [31, 38, 43, 48, 53, 57, 62], names: ['G', 'D', 'G', 'C', 'F', 'A', 'd'] },
+];
+
+export const DEFAULT_TUNING = 'drop-c';
+
+export const tuningById = (id: string | undefined) => TUNINGS.find((t) => t.id === id) ?? TUNINGS.find((t) => t.id === DEFAULT_TUNING)!;
+
+/** Lowest two strings a fifth apart: power chords are one finger across three strings. */
+export const isDrop = (t: Tuning) => t.strings[1] - t.strings[0] === 7;
+
+/** "tiefe C-Saite", "mittlere C-Saite", "hohe d-Saite" … */
+function longNames(t: Tuning): string[] {
+  const n = t.names.length;
+  return t.names.map((x, i) => {
+    if (i === 0) return `tiefe ${x}-Saite`;
+    if (i === n - 1) return `hohe ${x}-Saite`;
+    // Same note as a lower string (Drop C: C G C …) → "mittlere"; the octave string far up stays plain.
+    const twin = t.names.some((y, j) => j < i && y.toLowerCase() === x.toLowerCase());
+    return twin && i < n / 2 ? `mittlere ${x}-Saite` : `${x}-Saite`;
+  });
+}
+
+// The active tuning. Live bindings: modules importing these see setTuning() changes.
+export let CURRENT: Tuning = tuningById(DEFAULT_TUNING);
+export let TUNING: number[] = CURRENT.strings;
+export let STRINGS = TUNING.length;
+/** Index of the highest string. */
+export let TOP = STRINGS - 1;
+/**
+ * Key the booklet exercises sound in: the fourth string from the top (the
+ * middle C in Drop C). Booklet frets stay the same in every tuning.
+ */
+export let HOME = 0;
+export let STRING_SHORT: string[] = CURRENT.names;
+export let STRING_LONG: string[] = longNames(CURRENT);
 /** Dative forms: "auf der …". */
-export const STRING_DAT = ['tiefen C-Saite', 'G-Saite', 'mittleren C-Saite', 'F-Saite', 'A-Saite', 'hohen d-Saite'];
+export let STRING_DAT: string[] = STRING_LONG.map(dative);
+
+function dative(x: string) {
+  return x.replace(/^(tief|mittler|hoh)e /, '$1en ');
+}
+
+export function setTuning(id: string | undefined) {
+  const t = tuningById(id);
+  if (t === CURRENT) return;
+  CURRENT = t;
+  TUNING = t.strings;
+  STRINGS = t.strings.length;
+  TOP = STRINGS - 1;
+  HOME = midiToPc(t.strings[TOP - 3]);
+  STRING_SHORT = t.names;
+  STRING_LONG = longNames(t);
+  STRING_DAT = STRING_LONG.map(dative);
+}
+
+/** Booklet string (Drop C, 0 = low C … 5 = high d) on the current guitar, counted from the top. */
+export const bs = (b: number) => b + STRINGS - 6;
+
+/** All string indices, low to high. */
+export const allStrings = () => Array.from({ length: STRINGS }, (_, s) => s);
+
+/** "Sechs" / "Sieben" – for "Sechs-Saiten-Griffbild". */
+export const stringsWord = () => (STRINGS === 7 ? 'Sieben' : 'Sechs');
+
+/** The tonic `pc` on the lowest string (for drones and backing bass). */
+export const lowRoot = (pc: number) => TUNING[0] + midiToPc(pc - TUNING[0]);
 
 const FLAT_NAMES = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'];
 const SHARP_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 
-/** Default tonic: the booklet centres everything on C. */
+/** Default tonic of the scale cards. */
 export const ROOT_PC = 0;
 
 export interface ScaleDef {
@@ -57,12 +140,15 @@ export function fillDegrees(text: string, root: number) {
 /** "B" is the German H – spelled out where a single note is named. */
 const withH = (name: string) => (name === 'B' ? 'B (= H)' : name);
 
-/** Moves the C motif into another key, staying on the same strings and inside frets 0–17. */
+/**
+ * Moves the booklet motif (Drop C, key C) onto the current guitar and into
+ * another key, staying on the same strings and inside frets 0–17.
+ */
 function transposeMotif(motif: [number, number][], root: number): [number, number][] {
-  const r = midiToPc(root);
+  const r = midiToPc(root - HOME);
   const fits = (d: number) => motif.every(([, f]) => f + d >= 0 && f + d <= 17);
   const d = [r, r - 12].filter(fits).sort((a, b) => Math.abs(a) - Math.abs(b))[0] ?? 0;
-  return motif.map(([s, f]) => [s, f + d]);
+  return motif.map(([s, f]) => [bs(s), f + d]);
 }
 
 /** "G-Saite: 5–7–8 | mittlere C-Saite: 7–9" */
@@ -81,17 +167,21 @@ export function positionsText(ps: [number, number][]) {
 /** A scale card in a given key: names, texts and motif follow the tonic. */
 export function inKey(card: ScaleCard, root = ROOT_PC): ScaleDef {
   const r = midiToPc(root);
-  const motif = transposeMotif(card.motif, r);
   const { colorName, ...rest } = card;
   return {
     ...rest,
     root: r,
+    // Getters: the motif follows the tuning active when it is read.
+    get motif() {
+      return transposeMotif(card.motif, r);
+    },
+    get motifText() {
+      return positionsText(this.motif);
+    },
     name: card.name.replace(/^C-/, `${noteName(r)}-`),
     colorLabel: `${card.color.map((c) => withH(noteName(r + c))).join(' + ')} · ${colorName}`,
     compare: fillDegrees(card.compare, r),
     listen: fillDegrees(card.listen, r),
-    motif,
-    motifText: positionsText(motif),
     harmony: card.harmony ?? card.intervals,
   };
 }
@@ -136,7 +226,7 @@ export interface Pos {
 /** All scale positions in a fret window, for the fretboard map. */
 export function fretboardNotes(scale: { intervals: number[]; root?: number }, from = 5, to = 12): Pos[] {
   const out: Pos[] = [];
-  for (let s = 0; s < 6; s++) {
+  for (let s = 0; s < STRINGS; s++) {
     for (let f = from; f <= to; f++) if (inScale(scale, fretMidi(s, f))) out.push({ s, f });
   }
   return out;
@@ -150,8 +240,8 @@ export function scaleRun(scale: { intervals: number[]; root?: number }, start: n
 }
 
 /**
- * Path over all six strings, the way the booklet builds it: start on the low
- * C string (on the fifth below the tonic when the scale contains it – G for C),
+ * Path over all strings, the way the booklet builds it: start on the lowest
+ * string (on the fifth below the tonic when the scale contains it – G for C),
  * up to three notes per string, never wider than `maxSpan` frets on one string.
  */
 export function sixStringPath(
@@ -160,11 +250,11 @@ export function sixStringPath(
   maxSpan = 4,
 ): Pos[] {
   // Default: the fifth below the tonic on the low string (G2 for C), else the next lower scale note.
-  if (startMidi === undefined) return placed(scale, midiToPc(7 + (scale.root ?? ROOT_PC)), maxSpan);
+  if (startMidi === undefined) return placed(scale, midiToPc(7 + (scale.root ?? ROOT_PC) - TUNING[0]), maxSpan);
   const notes = scaleRun(scale, startMidi, 40);
   const path: Pos[] = [];
   let i = 0;
-  for (let s = 0; s < 6; s++) {
+  for (let s = 0; s < STRINGS; s++) {
     let count = 0;
     let first = -1;
     while (i < notes.length && count < 3) {
@@ -174,7 +264,7 @@ export function sixStringPath(
       if (f - first > maxSpan) break;
       // Leave the note for the next string when it fits there comfortably
       // and this string already has two notes (keeps 5/6-note scales compact).
-      if (s < 5 && count >= 2 && scale.intervals.length < 7 && notes[i] - TUNING[s + 1] >= first - 1) break;
+      if (s < TOP && count >= 2 && scale.intervals.length < 7 && notes[i] - TUNING[s + 1] >= first - 1) break;
       path.push({ s, f });
       count++;
       i++;
@@ -184,7 +274,7 @@ export function sixStringPath(
 }
 
 const shapeOf = (path: Pos[]) => path.map((p) => `${p.s}:${p.f - path[0].f}`).join(' ');
-const playable = (path: Pos[]) => new Set(path.map((p) => p.s)).size === 6 && path.every((p) => p.f >= 0 && p.f <= 17);
+const playable = (path: Pos[]) => new Set(path.map((p) => p.s)).size === STRINGS && path.every((p) => p.f >= 0 && p.f <= 17);
 
 /** Path from `fret` on the low string, or from the next lower scale note if that fret isn't in the scale. */
 function pathFrom(scale: { intervals: number[]; root?: number }, fret: number, maxSpan: number) {
@@ -197,36 +287,37 @@ function pathFrom(scale: { intervals: number[]; root?: number }, fret: number, m
  * The path from `fret` (0–11) or an octave higher – whichever keeps the shape
  * the scale has away from the nut and stays inside frets 0–17. Near the nut a
  * shape would need frets below 0, so G scales, for example, move up to fret 14.
+ * If neither fits (blues in E♭; some keys on seven strings), the path starts on
+ * the next scale note above instead.
  */
 function placed(scale: { intervals: number[]; root?: number }, fret: number, maxSpan: number): Pos[] {
   const ref = shapeOf(pathFrom({ intervals: scale.intervals, root: midiToPc((scale.root ?? ROOT_PC) - fret + 7) }, 7, maxSpan));
   const tries = [fret, fret + 12].map((f) => pathFrom(scale, f, maxSpan));
-  return tries.find((p) => playable(p) && shapeOf(p) === ref) ?? tries.find(playable) ?? tries[0];
+  const best = tries.find((p) => playable(p) && shapeOf(p) === ref) ?? tries.find(playable);
+  if (best) return best;
+  for (let f = fret + 1; f < 15; f++) {
+    if (!inScale(scale, TUNING[0] + f)) continue;
+    const q = sixStringPath(scale, TUNING[0] + f, maxSpan);
+    if (playable(q)) return q;
+  }
+  return tries[0];
 }
 
 /** Second position: the same scale from the tonic on the low string – five or seven frets away from the first. */
 export function secondPosition(scale: { intervals: number[]; root?: number }): Pos[] {
   const root = scale.root ?? ROOT_PC;
-  const p = placed(scale, midiToPc(root), 4);
-  if (playable(p)) return p;
-  // Rare (blues in E♭): neither octave fits – start on the next scale note above the tonic instead.
-  for (let f = midiToPc(root) + 1; f < 15; f++) {
-    if (!inScale(scale, TUNING[0] + f)) continue;
-    const q = sixStringPath(scale, TUNING[0] + f);
-    if (playable(q)) return q;
-  }
-  return p;
+  return placed(scale, midiToPc(root - TUNING[0]), 4);
 }
 
 /**
  * One octave tonic → tonic on a single string (horizontal path). Prefers the
- * G string (as the booklet does for C, frets 5–17); keys whose tonic sits
- * elsewhere move to the middle C or F string, so the octave ends by fret 17.
+ * G string of Drop C (as the booklet does for C, frets 5–17); keys whose tonic
+ * sits elsewhere move to the middle C or F string, so the octave ends by fret 17.
  */
 export function oneStringOctave(scale: { intervals: number[]; root?: number }, string?: number): Pos[] {
   const root = scale.root ?? ROOT_PC;
   const first = (s: number) => midiToPc(root - TUNING[s]);
-  const s = string ?? [1, 2, 3].find((x) => first(x) >= 1 && first(x) <= 5) ?? 1;
+  const s = string ?? [bs(1), bs(2), bs(3)].find((x) => first(x) >= 1 && first(x) <= 5) ?? bs(1);
   const startFret = first(s);
   const base = string !== undefined && startFret < 3 ? startFret + 12 : startFret;
   const out: Pos[] = [];

@@ -41,6 +41,8 @@ export interface Phase {
   beats?: number;
   text: string;
   pattern?: Step[];
+  /** Pattern is note groups of n steps, one per bar; the tab fills each bar with rest beats (one narrow column per beat). */
+  groups?: number;
   /** Phase lets the player choose a string; pattern depends on it. */
   pick?: { label: string; options: { value: number; label: string }[]; build: (v: number) => Step[] };
   /** Interactive tool shown in this phase instead of / next to the tab. */

@@ -1,4 +1,5 @@
 import type { BlockId, ModuleId } from '../data/types';
+import { DEFAULT_TUNING } from '../music/theory';
 
 export type Rating = 'clean' | 'ok' | 'rough';
 export type DayFocus = 'standard' | 'control' | 'push';
@@ -18,6 +19,10 @@ export interface Settings {
   autoStart: boolean;
   /** Sessions per week for the weekly goal ring. */
   weeklyGoal: number;
+  /** Tuning id (see TUNINGS); also fixes the number of strings. */
+  tuning: string;
+  /** Setup and tour done (shown once, also to existing users). */
+  onboarded: boolean;
 }
 
 export interface TempoState {
@@ -94,6 +99,8 @@ export const DEFAULT_SETTINGS: Settings = {
   restCue: true,
   autoStart: false,
   weeklyGoal: 4,
+  tuning: DEFAULT_TUNING,
+  onboarded: false,
 };
 
 export const initialState = (): AppState => ({

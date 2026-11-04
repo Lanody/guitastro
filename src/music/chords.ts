@@ -1,9 +1,10 @@
 // Chords for the progression block: built from the day's scale (stacked
-// thirds), voiced for Drop C. Power chords need one finger on the three low
-// strings; triads sit on the top strings, which are standard tuning a whole
-// step down (F A d = G B e), so the voicings are searched, not hand-written.
+// thirds), voiced for the current tuning. Power chords sit on three adjacent
+// low strings (in drop tunings one finger across all three); triads sit on the
+// top three strings, which are tuned like G B e in every supported tuning, so
+// the voicings are searched, not hand-written.
 
-import { TUNING, fretMidi, midiToPc, noteName, type Pos, type ScaleDef } from './theory';
+import { TOP, TUNING, fretMidi, midiToPc, noteName, type Pos, type ScaleDef } from './theory';
 
 export type Quality = 'maj' | 'min' | 'dim' | 'aug';
 export type Voicing = 'power' | 'power-mix' | 'triad';
@@ -101,30 +102,17 @@ export const namesText = (chords: Chord[]) => chords.map((c) => c.name).join(' �
 /** Fifth above the chord root: perfect, or ♭5 / ♯5 for diminished / augmented chords. */
 const fifthOf = (c: Chord) => (c.quality === 'dim' ? 6 : c.quality === 'aug' ? 8 : 7);
 
-/** Power chord with the root on the low C string (one finger for a perfect fifth). */
-function powerLow(c: Chord, fret: number): Pos[] {
+/**
+ * Power chord with the root on string `s`: fifth on the next string, octave on
+ * the one after. Frets follow from the tuning – in Drop C on the low strings
+ * all three share a fret, in standard tuning fifth and octave sit two frets up.
+ */
+export function powerGrip(c: Chord | null, s: number, fret: number): Pos[] {
+  const fifth = c ? fifthOf(c) : 7;
   return [
-    { s: 0, f: fret },
-    { s: 1, f: fret + fifthOf(c) - 7 },
-    { s: 2, f: fret },
-  ];
-}
-
-/** Power chord with the root on the G string: fifth and octave two frets up on the middle C and F string. */
-function powerG(c: Chord, fret: number): Pos[] {
-  return [
-    { s: 1, f: fret },
-    { s: 2, f: fret + fifthOf(c) - 5 },
-    { s: 3, f: fret + 2 },
-  ];
-}
-
-/** Power chord with the root on the middle C string: root, fifth on F, octave on A. */
-function powerMid(c: Chord, fret: number): Pos[] {
-  return [
-    { s: 2, f: fret },
-    { s: 3, f: fret + fifthOf(c) - 5 },
-    { s: 4, f: fret + 3 },
+    { s, f: fret },
+    { s: s + 1, f: fret + fifth - (TUNING[s + 1] - TUNING[s]) },
+    { s: s + 2, f: fret + 12 - (TUNING[s + 2] - TUNING[s]) },
   ];
 }
 
@@ -135,14 +123,14 @@ const centre = (g: Pos[]) => {
   return fretted.length ? fretted.reduce((a, p) => a + p.f, 0) / fretted.length : 0;
 };
 
-/** All triad grips on the three top strings (F, A, d) within a 4-fret span. */
+/** All triad grips on the three top strings (F, A, d in Drop C) within a 4-fret span. */
 function triadGrips(c: Chord): Pos[][] {
   const out: Pos[][] = [];
   const frets = (s: number) => Array.from({ length: 16 }, (_, f) => f).filter((f) => c.pcs.includes(midiToPc(fretMidi(s, f))));
-  for (const a of frets(3))
-    for (const b of frets(4))
-      for (const d of frets(5)) {
-        const g = [{ s: 3, f: a }, { s: 4, f: b }, { s: 5, f: d }];
+  for (const a of frets(TOP - 2))
+    for (const b of frets(TOP - 1))
+      for (const d of frets(TOP)) {
+        const g = [{ s: TOP - 2, f: a }, { s: TOP - 1, f: b }, { s: TOP, f: d }];
         const fretted = g.filter((p) => p.f > 0).map((p) => p.f);
         if (fretted.length && Math.max(...fretted) - Math.min(...fretted) > 3) continue;
         // Open strings only together with low frets – an open string next to fret 10 is no real grip.
@@ -157,9 +145,9 @@ function triadGrips(c: Chord): Pos[][] {
 function candidates(c: Chord, v: Voicing): Pos[][] {
   if (v === 'triad') return triadGrips(c);
   const on = (s: number) => [midiToPc(c.root - TUNING[s]), midiToPc(c.root - TUNING[s]) + 12];
-  const power = on(0).map((f) => powerLow(c, f));
+  const power = on(0).map((f) => powerGrip(c, 0, f));
   if (v === 'power') return power.filter(valid);
-  return [...power, ...on(1).map((f) => powerG(c, f)), ...on(2).map((f) => powerMid(c, f))].filter(valid);
+  return [...power, ...on(1).map((f) => powerGrip(c, 1, f)), ...on(2).map((f) => powerGrip(c, 2, f))].filter(valid);
 }
 
 /**
@@ -171,7 +159,7 @@ export function voiceProgression(chords: Chord[], v: Voicing, around = 5): Chord
   return chords.map((c) => {
     const opts = candidates(c, v);
     // Prefer grips close to the previous one, not too high up the neck; for power chords
-    // slightly prefer the root on the low string (the Drop-C sound).
+    // slightly prefer the root on the lowest string (the heavy sound).
     const cost = (g: Pos[]) => Math.abs(centre(g) - prev) + Math.max(0, centre(g) - 12) * 0.5 + (v !== 'triad' && g[0].s > 0 ? 1 : 0);
     const grip = [...opts].sort((a, b) => cost(a) - cost(b))[0];
     prev = centre(grip);

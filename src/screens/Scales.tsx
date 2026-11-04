@@ -8,7 +8,7 @@ import type { MapDot } from '../data/types';
 import { scaleProgress } from '../logic/progress';
 import type { AppState, HitLog } from '../logic/state';
 import { ROOTS, SCALES, SCALE_ROTATION, getScale } from '../music/scales';
-import { STRING_DAT, TUNING, degreeOf, fretMidi, fretboardNotes, noteName, oneStringOctave, sixStringPath, type ScaleDef } from '../music/theory';
+import { STRINGS, STRING_DAT, STRING_LONG, TOP, degreeOf, lowRoot, fretMidi, fretboardNotes, noteName, oneStringOctave, sixStringPath, type ScaleDef } from '../music/theory';
 
 interface Props {
   state: AppState;
@@ -32,7 +32,7 @@ export function Scales({ state, onChoose, onEar }: Props) {
   useEffect(() => () => droneOff(), []);
   // The drone follows the selected key.
   useEffect(() => {
-    if (drone) droneOn(TUNING[0] + root, state.settings.droneVolume);
+    if (drone) droneOn(lowRoot(root), state.settings.droneVolume);
     else droneOff();
   }, [drone, root, state.settings.droneVolume]);
   const sc = getScale(sel, root);
@@ -69,7 +69,7 @@ export function Scales({ state, onChoose, onEar }: Props) {
         <p className="scale-notes">
           {sc.intervals.map((iv, i) => (
             <span key={i} className={iv === 0 ? 'root' : sc.color.includes(iv) ? 'color' : ''}>
-              {noteName(iv)}
+              {noteName(root + iv)}
             </span>
           ))}
         </p>
@@ -118,12 +118,12 @@ export function Scales({ state, onChoose, onEar }: Props) {
             pluck(fretMidi(s, f));
             setTapped({ s, f });
           }}
-          caption={`Gold: ${r} · Türkis: ${sc.colorLabel} · hohe d-Saite oben`}
+          caption={`Gold: ${r} · Türkis: ${sc.colorLabel} · ${STRING_LONG[TOP]} oben`}
         />
       </section>
 
       <section className="card">
-        <h3>Weg über alle sechs Saiten</h3>
+        <h3>Weg über alle {STRINGS} Saiten</h3>
         <PathTab scale={sc} />
         <p className="small muted">
           Ab Bund {path[0].f}: vom tiefen {noteName(fretMidi(path[0].s, path[0].f))} zum hohen {noteName(fretMidi(path[path.length - 1].s, path[path.length - 1].f))}. Anschließend rückwärts spielen. Der Startton ändert nicht das tonale Zentrum {r}.

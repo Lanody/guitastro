@@ -4,11 +4,11 @@ import { rngFrom } from '../data/rng';
 import type { Step } from '../data/types';
 import { countLabel, fillBars, padBar } from '../music/meter';
 import { SCALES, getScale } from '../music/scales';
-import { layoutTab, sustained } from './Tab';
+import { groupLines, layoutTab, sustained, withRestBeats } from './Tab';
 
 const ctx = { rng: rngFrom('t'), vary: false, scale: getScale('dorian') };
 const [a1, , a3, a4, a5, a6] = moduleA(ctx);
-const [b1, , b3] = moduleB(ctx);
+const [b1, , b3, , b5] = moduleB(ctx);
 const note = (f: number): Step => ({ s: 5, f });
 
 describe('tab layout (one column per step, equal time)', () => {
@@ -18,9 +18,21 @@ describe('tab layout (one column per step, equal time)', () => {
       expect(layoutTab(ex.pattern!.length, 4)).toHaveLength(1);
     }
   });
-  it('speed bursts: control and speed bar are lines of equal length', () => {
+  it('speed bursts: control and speed bar share one line', () => {
     const lines = layoutTab(a6.phases[0].pattern!.length, 4);
-    expect(lines.map((l) => l.length)).toEqual([16, 16]);
+    expect(lines.map((l) => l.length)).toEqual([32]);
+  });
+  it('bursts on every string: group view, all strings in one line', () => {
+    const [one, two] = b5.phases.map((ph) => withRestBeats(ph.pattern!, ph.groups!, ph.sub));
+    expect(groupLines(one.steps.length, one.bar, false).map((l) => l.length)).toEqual([42]);
+    expect(groupLines(two.steps.length, two.bar, true).map((l) => l.length)).toEqual([30, 30]);
+  });
+  it('group view: rests shrink to one column per beat and keep the count', () => {
+    const g = withRestBeats([note(7), note(8), note(10), note(8)], 4, 4);
+    expect(g.steps.slice(4)).toEqual(['rest', 'rest', 'rest']);
+    expect(g.steps.map((_, i) => g.count(i)[0])).toEqual(['1', 'e', '+', 'e', '2', '3', '4']);
+    const d = withRestBeats(Array(8).fill(note(5)), 8, 4);
+    expect(d.steps.map((_, i) => d.count(i)[0])).toEqual(['1', 'e', '+', 'e', '2', 'e', '+', 'e', '3', '4']);
   });
   it('long patterns break at bar lines into equal lines', () => {
     expect(layoutTab(b1.pattern!.length, 2).map((l) => l.length)).toEqual([16, 16, 16]);
@@ -33,8 +45,8 @@ describe('tab layout (one column per step, equal time)', () => {
     expect(layoutTab(18, 2, 9).map((l) => l.length)).toEqual([9, 9]);
   });
   it('other meters: lines break at their bar lines', () => {
-    expect(layoutTab(12, 2, undefined, undefined, 3).map((l) => l.length)).toEqual([12]);
-    expect(layoutTab(24, 4, undefined, undefined, 3).map((l) => l.length)).toEqual([12, 12]);
+    expect(layoutTab(12, 2, undefined, 2, 3).map((l) => l.length)).toEqual([12]);
+    expect(layoutTab(48, 4, undefined, 2, 3).map((l) => l.length)).toEqual([24, 24]);
   });
   it('held notes ring on their string until the next note or rest', () => {
     expect(sustained([note(5), 'hold', 'hold', 'rest', 'hold', { s: 2, f: 3 }, 'hold'])).toEqual([-1, 5, 5, -1, -1, -1, 2]);
@@ -65,7 +77,7 @@ describe('meter', () => {
         for (const ex of [...moduleA(c), ...moduleB(c), ...scaleBlock({ ...c, stage: 'learn' }), ...scaleBlock({ ...c, stage: 'deepen' }), ...scaleBlock({ ...c, stage: 'apply' })])
           for (const ph of ex.phases) {
             const pat = ph.pattern ?? ex.pattern;
-            if (!pat) continue;
+            if (!pat || ph.groups) continue;
             for (const sub of ex.pattern && ex.tracksTempo ? [2, 4] : [ph.sub]) expect(fillBars(pat, sub).length % (sub * 4), `${ex.key} ${sub}`).toBe(0);
           }
       }

@@ -30,7 +30,7 @@ export const LEVEL_TITLES = [
   'Phrasen-Bauer',
   'Solo-Architekt',
   'Shred-Adept',
-  'Drop-C-Virtuose',
+  'Tiefton-Virtuose',
   'Griffbrett-Meister',
   'Legende',
 ];
@@ -167,8 +167,15 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'first', group: 'Dranbleiben', icon: '🎸', title: 'Erster Ton', text: 'Die erste Einheit gespeichert.', progress: (s) => count(s.sessions.length, 1) },
   { id: 'streak3', group: 'Dranbleiben', icon: '🔥', title: 'Warmgespielt', text: '3 Tage in Folge geübt.', progress: (s) => count(bestStreak(s), 3) },
   { id: 'streak7', group: 'Dranbleiben', icon: '🔥', title: 'Eine Woche am Stück', text: '7 Tage in Folge geübt.', progress: (s) => count(bestStreak(s), 7) },
-  { id: 'streak14', group: 'Dranbleiben', icon: '🔥', title: 'Zwei Wochen Disziplin', text: '14 Tage in Folge – genau die Heft-Phase.', progress: (s) => count(bestStreak(s), 14) },
+  { id: 'streak14', group: 'Dranbleiben', icon: '🔥', title: 'Zwei Wochen Disziplin', text: '14 Tage in Folge – lange genug, dass Bewegungen sitzen.', progress: (s) => count(bestStreak(s), 14) },
+  { id: 'streak21', group: 'Dranbleiben', icon: '🔥', title: 'Gewohnheit', text: '21 Tage in Folge – aus Üben wird Routine.', progress: (s) => count(bestStreak(s), 21) },
   { id: 'streak30', group: 'Dranbleiben', icon: '🏆', title: 'Monats-Monster', text: '30 Tage in Folge geübt.', progress: (s) => count(bestStreak(s), 30) },
+  { id: 'streak50', group: 'Dranbleiben', icon: '🏆', title: 'Fünfzig am Stück', text: '50 Tage in Folge geübt.', progress: (s) => count(bestStreak(s), 50) },
+  { id: 'streak100', group: 'Dranbleiben', icon: '👑', title: 'Hundert Tage', text: '100 Tage in Folge geübt.', progress: (s) => count(bestStreak(s), 100) },
+  { id: 'streak365', group: 'Dranbleiben', icon: '👑', title: 'Ein ganzes Jahr', text: '365 Tage in Folge geübt.', progress: (s) => count(bestStreak(s), 365) },
+  { id: 'weeks4', group: 'Dranbleiben', icon: '📆', title: 'Vier Wochen im Plan', text: 'Das Wochenziel 4 Wochen in Folge erreicht.', progress: (s) => count(bestWeekStreak(s), 4) },
+  { id: 'weeks12', group: 'Dranbleiben', icon: '📆', title: 'Ein Quartal im Plan', text: 'Das Wochenziel 12 Wochen in Folge erreicht.', progress: (s) => count(bestWeekStreak(s), 12) },
+  { id: 'comeback', group: 'Dranbleiben', icon: '🔁', title: 'Wieder da', text: 'Nach mindestens einer Woche Pause wieder eingestiegen.', progress: (s) => flag(longestBreak(s) >= 8) },
   { id: 'sessions10', group: 'Dranbleiben', icon: '📅', title: 'Zweistellig', text: '10 Einheiten gespeichert.', progress: (s) => count(s.sessions.length, 10) },
   { id: 'sessions50', group: 'Dranbleiben', icon: '📅', title: 'Routine', text: '50 Einheiten gespeichert.', progress: (s) => count(s.sessions.length, 50) },
   { id: 'sessions100', group: 'Dranbleiben', icon: '💯', title: 'Hundert', text: '100 Einheiten gespeichert.', progress: (s) => count(s.sessions.length, 100) },
@@ -189,9 +196,19 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'bpmup', group: 'Tempo', icon: '⬆️', title: 'Erste Steigerung', text: 'Zum ersten Mal +BPM verdient.', progress: (s) => count(maxBpmGain(s), 1) },
   { id: 'bpm10', group: 'Tempo', icon: '🚀', title: '+10 BPM', text: 'Eine Übung 10 BPM schneller als am Anfang.', progress: (s) => count(maxBpmGain(s), 10) },
   { id: 'bpm20', group: 'Tempo', icon: '🚀', title: '+20 BPM', text: 'Eine Übung 20 BPM schneller als am Anfang.', progress: (s) => count(maxBpmGain(s), 20) },
+  { id: 'bpm30', group: 'Tempo', icon: '🚀', title: '+30 BPM', text: 'Eine Übung 30 BPM schneller als am Anfang.', progress: (s) => count(maxBpmGain(s), 30) },
   { id: 'bpmsum50', group: 'Tempo', icon: '⚡', title: 'Auf breiter Front', text: 'Zusammen +50 BPM über alle Übungen.', progress: (s) => count(bpmGain(s), 50) },
-  { id: 'burst90', group: 'Tempo', icon: '⚡', title: 'Burst 90', text: 'Speed-Bursts sauber bei 90 BPM.', progress: (s) => count(cleanAt(s, ['A6', 'B5']), 90) },
+  { id: 'bpmsum150', group: 'Tempo', icon: '⚡', title: 'Tempo-Lawine', text: 'Zusammen +150 BPM über alle Übungen.', progress: (s) => count(bpmGain(s), 150) },
+  { id: 'faster10', group: 'Tempo', icon: '📈', title: 'Überall schneller', text: '10 verschiedene Übungen über ihr Starttempo gebracht.', progress: (s) => count(fasterExercises(s), 10) },
+  { id: 'burst90', group: 'Tempo', icon: '⚡', title: 'Burst 90', text: 'Speed-Bursts sauber bei 90 BPM.', progress: (s) => count(cleanAt(s, BURSTS), 90) },
+  { id: 'burst100', group: 'Tempo', icon: '⚡', title: 'Burst 100', text: 'Speed-Bursts sauber bei 100 BPM.', progress: (s) => count(cleanAt(s, BURSTS), 100) },
+  { id: 'burst120', group: 'Tempo', icon: '🌪️', title: 'Burst 120', text: 'Speed-Bursts sauber bei 120 BPM.', progress: (s) => count(cleanAt(s, BURSTS), 120) },
   { id: 'clean5', group: 'Tempo', icon: '✨', title: 'Blitzsauber', text: '5 Tempo-Übungen in einer Einheit als „sauber“ bewertet.', progress: (s) => count(Math.max(0, ...s.sessions.map((x) => x.results.filter((r) => r.rating === 'clean').length)), 5) },
+  { id: 'cleanrun5', group: 'Tempo', icon: '🧊', title: 'Saubere Serie', text: 'Eine Übung 5-mal in Folge als „sauber“ bewertet.', progress: (s) => count(cleanRun(s), 5) },
+  { id: 'cleanrun10', group: 'Tempo', icon: '🧊', title: 'Unaufhaltsam', text: 'Eine Übung 10-mal in Folge als „sauber“ bewertet.', progress: (s) => count(cleanRun(s), 10) },
+  { id: 'push3', group: 'Tempo', icon: '🏎️', title: 'Gas geben', text: '3 Push-Tage durchgezogen.', progress: (s) => count(s.sessions.filter((x) => x.focus === 'push').length, 3) },
+  { id: 'quick2', group: 'Tempo', icon: '⏩', title: 'Schnell gefunden', text: 'Eine Treffer-Runde (ab 8 Zielen, mindestens 80 %) mit Ø unter 2 Sekunden.', progress: (s) => flag(fastRound(s, 2000)) },
+  { id: 'quick1', group: 'Tempo', icon: '⚡', title: 'Blitzgriff', text: 'Eine Treffer-Runde (ab 8 Zielen, mindestens 80 %) mit Ø unter 1,2 Sekunden.', progress: (s) => flag(fastRound(s, 1200)) },
   // Treffsicherheit
   { id: 'hit90', group: 'Treffsicherheit', icon: '🎯', title: 'Scharfschütze', text: 'Eine Treffer-Runde (ab 8 Zielen) mit mindestens 90 %.', progress: (s) => flag(goodRound(s, ['mic', 'self'], 8, 0.9)) },
   { id: 'mic100', group: 'Treffsicherheit', icon: '🎙️', title: 'Das Mikro lügt nicht', text: 'Eine Mikrofon-Runde (ab 8 Zielen) fehlerfrei.', progress: (s) => flag(goodRound(s, ['mic'], 8, 1)) },
@@ -199,7 +216,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'ear10', group: 'Treffsicherheit', icon: '👂', title: 'Gutes Gehör', text: '10 Skalen im Hör-Quiz richtig erkannt.', progress: (s) => count(hitTotals(s, ['ear']).hits, 10) },
   // Skalen
   { id: 'scale1', group: 'Skalen', icon: '🎼', title: 'Neue Farbe', text: 'Den Skalen-Block mit einer Skala gespielt.', progress: (s) => count(scalesPlayed(s), 1) },
-  { id: 'scales3', group: 'Skalen', icon: '🎨', title: 'Drei Farben', text: 'Alle drei Skalen aus dem Heft gespielt.', progress: (s) => count(['dorian', 'phrygian', 'harmonic'].filter((id) => s.sessions.some((x) => x.scaleId === id && x.modules.includes('C'))).length, 3) },
+  { id: 'scales3', group: 'Skalen', icon: '🎨', title: 'Drei Farben', text: 'Dorisch, Phrygisch und Harmonisch Moll gespielt.', progress: (s) => count(['dorian', 'phrygian', 'harmonic'].filter((id) => s.sessions.some((x) => x.scaleId === id && x.modules.includes('C'))).length, 3) },
   { id: 'scalesAll', group: 'Skalen', icon: '🌈', title: 'Ganze Palette', text: `Alle ${SCALE_ROTATION.length} Skalen der Rotation gespielt.`, progress: (s) => count(SCALE_ROTATION.filter((id) => s.sessions.some((x) => x.scaleId === id && x.modules.includes('C'))).length, SCALE_ROTATION.length) },
   { id: 'recall5', group: 'Skalen', icon: '🧠', title: 'Aus dem Kopf', text: '5 verschiedene Skalen fehlerfrei abgerufen.', progress: (s) => count(scalesRecalled(s), 5) },
   { id: 'master', group: 'Skalen', icon: '⭐', title: 'Skalen-Meister', text: 'Eine Skala mit allen 3 Sternen.', progress: (s) => count(Math.max(...SCALES.map((sc) => scaleProgress(s, sc.id).stars)), 3) },
@@ -213,20 +230,68 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'chords30', group: 'Spielweise', icon: '🎸', title: 'Rhythmusgitarrist', text: '30 Akkordfolgen gespielt.', progress: (s) => count(chordSessions(s), 30) },
 ];
 
-function maxWeekSessions(s: AppState) {
+/** Sessions per week, keyed by the week's Monday timestamp. */
+function weekCounts(s: AppState) {
   const m = new Map<number, number>();
   for (const x of s.sessions) {
     const k = weekStart(new Date(x.date)).getTime();
     m.set(k, (m.get(k) ?? 0) + 1);
   }
-  return Math.max(0, ...m.values());
+  return m;
 }
+
+const maxWeekSessions = (s: AppState) => Math.max(0, ...weekCounts(s).values());
+
+/** Most consecutive weeks (Monday-based) in which the weekly goal was met. */
+function bestWeekStreak(s: AppState) {
+  const weeks = [...weekCounts(s)].filter(([, n]) => n >= s.settings.weeklyGoal).map(([k]) => k).sort((a, b) => a - b);
+  let best = 0;
+  let cur = 0;
+  let prev: number | null = null;
+  for (const w of weeks) {
+    // Round: a week across a DST switch is 7 days ± 1 hour.
+    cur = prev !== null && Math.round((w - prev) / (7 * 86400000)) === 1 ? cur + 1 : 1;
+    best = Math.max(best, cur);
+    prev = w;
+  }
+  return best;
+}
+
+/** Largest gap in days between two practice days (8 = a full week without practice). */
+function longestBreak(s: AppState) {
+  const days = [...new Set(s.sessions.map((x) => todayKey(new Date(x.date))))].sort().map((d) => Date.parse(d + 'T12:00:00'));
+  let best = 0;
+  for (let i = 1; i < days.length; i++) best = Math.max(best, Math.round((days[i] - days[i - 1]) / 86400000));
+  return best;
+}
+
+const BURSTS = ['A6', 'B5'];
 
 function cleanAt(s: AppState, keys: string[]) {
   let best = 0;
   for (const k of keys) for (const h of s.tempo[k]?.history ?? []) if (h.r === 'clean') best = Math.max(best, h.bpm);
   return best;
 }
+
+/** Exercises whose stored tempo is above their first rated tempo. */
+const fasterExercises = (s: AppState) => Object.values(s.tempo).filter((t) => t.bpm > (t.history[0]?.bpm ?? t.bpm)).length;
+
+/** Longest run of consecutive "clean" ratings on a single exercise. */
+function cleanRun(s: AppState) {
+  let best = 0;
+  for (const t of Object.values(s.tempo)) {
+    let cur = 0;
+    for (const h of t.history) {
+      cur = h.r === 'clean' ? cur + 1 : 0;
+      best = Math.max(best, cur);
+    }
+  }
+  return best;
+}
+
+/** A hit round (≥ 8 targets, ≥ 80 % hits) whose average time to a hit is below `ms`. */
+const fastRound = (s: AppState, ms: number) =>
+  s.hits.some((h) => (h.mode === 'mic' || h.mode === 'self') && h.total >= 8 && h.hits / h.total >= 0.8 && h.avgMs !== undefined && h.avgMs < ms);
 
 export function evaluate(state: AppState) {
   return ACHIEVEMENTS.map((def) => {

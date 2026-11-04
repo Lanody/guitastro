@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { audio } from './audio/engine';
 import { advanceScale, applyRating, progressionText, type Plan } from './logic/plan';
 import { levelInfo, sessionXp, totalXp, withAchievements, type AchievementDef } from './logic/progress';
+import { setTuning } from './music/theory';
 import { load, save, todayKey, type AppState, type ExerciseResult, type HitLog, type SessionLog, type Settings } from './logic/state';
 import { Done } from './screens/Done';
+import { GuideScreen, Onboarding } from './screens/Guide';
 import { History } from './screens/History';
 import { Home } from './screens/Home';
 import { Scales } from './screens/Scales';
@@ -12,7 +14,7 @@ import { SettingsScreen } from './screens/SettingsScreen';
 import { Summary } from './screens/Summary';
 import { Trainer } from './screens/Trainer';
 
-type Screen = 'home' | 'history' | 'scales' | 'trainer' | 'settings';
+type Screen = 'home' | 'history' | 'scales' | 'trainer' | 'settings' | 'guide';
 
 const NAV: { id: Screen; label: string }[] = [
   { id: 'home', label: 'Heute' },
@@ -31,8 +33,11 @@ export default function App() {
   const [toasts, setToasts] = useState<AchievementDef[]>([]);
 
   useEffect(() => save(state), [state]);
+  // Before anything below builds plans, tabs or fretboards for it.
+  setTuning(state.settings.tuning);
 
   const update = useCallback((fn: (s: AppState) => AppState) => setState((s) => fn(s)), []);
+  const onSettings = useCallback((p: Partial<Settings>) => update((s) => ({ ...s, settings: { ...s.settings, ...p } })), [update]);
 
   const toast = useCallback((fresh: AchievementDef[]) => {
     if (!fresh.length) return;
@@ -110,6 +115,14 @@ export default function App() {
     </div>
   );
 
+  if (!state.settings.onboarded) {
+    return (
+      <main className="app">
+        <Onboarding state={state} onSettings={onSettings} />
+      </main>
+    );
+  }
+
   if (done) {
     return (
       <main className="app">
@@ -160,6 +173,7 @@ export default function App() {
             go={setScreen}
           />
         )}
+        {screen === 'guide' && <GuideScreen state={state} onSettings={onSettings} go={setScreen} />}
         {screen === 'history' && <History state={state} />}
         {screen === 'scales' && (
           <Scales
@@ -175,11 +189,7 @@ export default function App() {
         )}
         {screen === 'trainer' && <Trainer state={state} onHit={addHit} />}
         {screen === 'settings' && (
-          <SettingsScreen
-            state={state}
-            onSettings={(p: Partial<Settings>) => update((s) => ({ ...s, settings: { ...s.settings, ...p } }))}
-            onReplace={setState}
-          />
+          <SettingsScreen state={state} onSettings={onSettings} onReplace={setState} onGuide={() => setScreen('guide')} />
         )}
       </main>
       {toastList}

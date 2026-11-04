@@ -38,7 +38,7 @@ describe('modules', () => {
         for (const e of all) {
           for (const p of e.phases) {
             const pat = p.pattern ?? e.pattern;
-            if (pat) expect(pat.length % (p.sub * (p.beats ?? 4)), `${e.key} ${p.label}`).toBe(0);
+            if (pat && !p.groups) expect(pat.length % (p.sub * (p.beats ?? 4)), `${e.key} ${p.label}`).toBe(0);
           }
           for (const pat of allPatterns(e)) {
             for (const nt of patternNotes(pat)) {

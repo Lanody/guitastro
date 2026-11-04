@@ -6,13 +6,14 @@ import { seconds } from '../data/types';
 import { FOCUS_INFO, STAGE_INFO, UNLOCK_DAYS, bpmFor, buildPlan, progressionText, streak, type Plan } from '../logic/plan';
 import { daysBetween, todayKey, type AppState } from '../logic/state';
 import { SCALES, getScale } from '../music/scales';
+import { CURRENT } from '../music/theory';
 import { FOCUS_LABEL } from './Session';
 
 interface Props {
   state: AppState;
   onStart: (plan: Plan) => void;
   onReroll: () => void;
-  go: (screen: 'trainer' | 'scales' | 'history') => void;
+  go: (screen: 'trainer' | 'scales' | 'history' | 'guide') => void;
 }
 
 export function Home({ state, onStart, onReroll, go }: Props) {
@@ -34,9 +35,14 @@ export function Home({ state, onStart, onReroll, go }: Props) {
     <div className="home">
       <header className="home-head">
         <div>
-          <p className="eyebrow">Drop C · Gitarren-Training</p>
+          <p className="eyebrow">
+            {CURRENT.name.replace(' (7)', '')} · {CURRENT.strings.length} Saiten
+          </p>
           <h1>{playedToday ? 'Noch eine Runde?' : `${greeting}. Bereit?`}</h1>
         </div>
+        <button className="help-btn" onClick={() => go('guide')} aria-label="Anleitung" title="Anleitung">
+          ?
+        </button>
         <div className="streak" title="Tage in Folge geübt">
           <strong>{st}</strong>
           <span>{st === 1 ? 'Tag' : 'Tage'} in Folge</span>
@@ -57,7 +63,7 @@ export function Home({ state, onStart, onReroll, go }: Props) {
             <b>{scale.name}</b>
             <span className="muted">
               {' '}
-              · Tag {dayOfBlock}
+              · Lektion {dayOfBlock}
               {state.scale.pinned ? ' (fixiert)' : ` von ${state.settings.scaleSessions}`}
             </span>
             <p className="small">{STAGE_INFO[plan.stage]}</p>
@@ -114,9 +120,9 @@ export function Home({ state, onStart, onReroll, go }: Props) {
               </button>
             </>
           ) : state.settings.variation === 'never' ? (
-            'Heft-Version (Variationen ausgeschaltet).'
+            'Feste Fingerfolgen und Lagen (Variationen ausgeschaltet).'
           ) : (
-            `Übungen wechseln täglich. Fingerfolgen und Lagen bleiben die ersten zwei Wochen wie im Heft${state.firstDay ? ` – Variationen in ${Math.max(1, unlockIn)} ${unlockIn === 1 ? 'Tag' : 'Tagen'}` : ''}.`
+            `Übungen wechseln mit jeder Lektion. Fingerfolgen und Lagen bleiben die ersten zwei Wochen gleich, damit sich die Bewegung festigt${state.firstDay ? ` – Variationen in ${Math.max(1, unlockIn)} ${unlockIn === 1 ? 'Tag' : 'Tagen'}` : ''}.`
           )}
         </p>
       </section>

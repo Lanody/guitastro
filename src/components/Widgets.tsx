@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { droneActive, droneOff, droneOn, playSequence, pluck } from '../audio/engine';
 import type { Step } from '../data/types';
 import type { HitLog } from '../logic/state';
-import { STRING_DAT, TUNING, fretMidi, midiToPc, noteName, oneStringOctave, sixStringPath, type ScaleDef } from '../music/theory';
+import { STRINGS, STRING_DAT, fretMidi, lowRoot, midiToPc, noteName, oneStringOctave, sixStringPath, type ScaleDef } from '../music/theory';
 import { Tab } from './Tab';
 
 /** C1 · Hören: compare the reference tone with the scale's colour tone over the tonic. */
@@ -20,7 +20,7 @@ export function ListenWidget({ scale, droneVolume }: { scale: ScaleDef; droneVol
           className={`btn ${drone ? 'on' : 'ghost'}`}
           onClick={() => {
             if (drone) droneOff();
-            else droneOn(TUNING[0] + scale.root, droneVolume);
+            else droneOn(lowRoot(scale.root), droneVolume);
             setDrone(!drone);
           }}
         >
@@ -42,7 +42,7 @@ export function ListenWidget({ scale, droneVolume }: { scale: ScaleDef; droneVol
         </button>
       </div>
       <p className="muted small">
-        Erst anhören, dann selbst über der Drone spielen. Die Drone hält das tiefe {r} – wie der „selbst aufgenommene, gehaltene Grundton“ aus dem Heft.
+        Erst anhören, dann selbst über der Drone spielen. Die Drone hält das tiefe {r} als Bezugston – so hörst du, wie jeder Skalenton zum Grundton klingt.
       </p>
     </div>
   );
@@ -127,10 +127,10 @@ export function RecallWidget({ scale, onDone }: { scale: ScaleDef; onDone?: (log
   );
 }
 
-/** Static preview of a scale's six-string path (used on the scale cards). */
+/** Static preview of a scale's path over all strings (used on the scale cards). */
 export function PathTab({ scale }: { scale: ScaleDef }) {
   const steps: Step[] = sixStringPath(scale).map((p) => ({ s: p.s, f: p.f }));
-  // Three strings per bar keeps the path readable on a phone.
-  const perBar = steps.filter((p) => typeof p === 'object' && p.s < 3).length;
+  // Half the strings per bar keeps the path readable on a phone.
+  const perBar = steps.filter((p) => typeof p === 'object' && p.s < Math.ceil(STRINGS / 2)).length;
   return <Tab steps={steps} sub={2} barLen={perBar} allStrings />;
 }

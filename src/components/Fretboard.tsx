@@ -1,5 +1,5 @@
 import type { MapDot } from '../data/types';
-import { STRING_SHORT, fretMidi, noteName } from '../music/theory';
+import { STRINGS, STRING_SHORT, TOP, allStrings, fretMidi, noteName } from '../music/theory';
 
 interface Props {
   from: number;
@@ -22,9 +22,9 @@ export function Fretboard({ from, to, dots, names = true, mark, onTap, caption }
   const left = 26;
   const top = 22;
   const w = left + frets * colW + 8;
-  const h = top + 6 * rowH;
+  const h = top + STRINGS * rowH;
   const x = (f: number) => left + (f - from + 0.5) * colW;
-  const y = (s: number) => top + (5 - s + 0.5) * rowH;
+  const y = (s: number) => top + (TOP - s + 0.5) * rowH;
 
   return (
     <figure className="fretboard">
@@ -35,16 +35,16 @@ export function Fretboard({ from, to, dots, names = true, mark, onTap, caption }
             <text x={x(f)} y={13} className="fb-num">
               {f}
             </text>
-            {MARKERS.includes(f) && <rect x={left + (f - from) * colW} y={top} width={colW} height={6 * rowH} className="fb-marker" />}
-            <line x1={left + (f - from + 1) * colW} x2={left + (f - from + 1) * colW} y1={top + rowH * 0.3} y2={top + rowH * 5.7} className="fb-fret" />
+            {MARKERS.includes(f) && <rect x={left + (f - from) * colW} y={top} width={colW} height={STRINGS * rowH} className="fb-marker" />}
+            <line x1={left + (f - from + 1) * colW} x2={left + (f - from + 1) * colW} y1={top + rowH * 0.3} y2={top + rowH * (STRINGS - 0.3)} className="fb-fret" />
           </g>
         ))}
-        {[0, 1, 2, 3, 4, 5].map((s) => (
+        {allStrings().map((s) => (
           <g key={s}>
             <text x={10} y={y(s) + 4} className="fb-str">
               {STRING_SHORT[s]}
             </text>
-            <line x1={left} x2={w - 8} y1={y(s)} y2={y(s)} className="fb-string" style={{ strokeWidth: 0.8 + (5 - s) * 0.25 }} />
+            <line x1={left} x2={w - 8} y1={y(s)} y2={y(s)} className="fb-string" style={{ strokeWidth: 0.8 + (TOP - s) * 0.25 }} />
             {onTap &&
               Array.from({ length: frets }, (_, i) => from + i).map((f) => (
                 <rect

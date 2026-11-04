@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { HitTrainer } from '../components/HitTrainer';
 import type { AppState, HitLog } from '../logic/state';
 import { ROOTS, SCALES, getScale } from '../music/scales';
-import { STRING_SHORT } from '../music/theory';
+import { STRING_SHORT, allStrings } from '../music/theory';
 
 interface Props {
   state: AppState;
@@ -13,12 +13,12 @@ export function Trainer({ state, onHit }: Props) {
   const [scaleId, setScaleId] = useState(state.scale.id);
   const [root, setRoot] = useState(state.scale.root ?? 0);
   const [kinds, setKinds] = useState<'rootColor' | 'all'>('rootColor');
-  const [strings, setStrings] = useState([0, 1, 2, 3, 4, 5]);
+  const [strings, setStrings] = useState(allStrings);
   const [range, setRange] = useState<'low' | 'mid' | 'all'>('mid');
   const sc = getScale(scaleId, root);
   const [from, to] = range === 'low' ? [0, 7] : range === 'mid' ? [5, 12] : [0, 15];
   const toggleString = (s: number) => {
-    const next = strings.includes(s) ? strings.filter((x) => x !== s) : [...strings, s].sort();
+    const next = strings.includes(s) ? strings.filter((x) => x !== s) : [...strings, s].sort((a, b) => a - b);
     if (next.length) setStrings(next);
   };
 
@@ -79,7 +79,9 @@ export function Trainer({ state, onHit }: Props) {
         <div>
           <span className="label">Saiten</span>
           <div className="seg small">
-            {[5, 4, 3, 2, 1, 0].map((s) => (
+            {allStrings()
+              .reverse()
+              .map((s) => (
               <button key={s} className={strings.includes(s) ? 'on' : ''} onClick={() => toggleString(s)}>
                 {STRING_SHORT[s]}
               </button>

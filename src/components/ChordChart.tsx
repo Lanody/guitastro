@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import type { PhaseChords } from '../data/types';
-import { STRING_SHORT, type Pos } from '../music/theory';
+import { STRING_SHORT, TOP, allStrings, type Pos } from '../music/theory';
 
 const SPAN = 4;
 
-/** Small grip diagram, oriented like the tab: high d string on top, frets left to right. */
+/** Small grip diagram, oriented like the tab: highest string on top, frets left to right. */
 export function ChordBox({ grip }: { grip: Pos[] }) {
   const fretted = grip.filter((p) => p.f > 0).map((p) => p.f);
   const max = Math.max(0, ...fretted);
@@ -14,12 +14,12 @@ export function ChordBox({ grip }: { grip: Pos[] }) {
   const left = 22;
   const top = 6;
   const w = left + SPAN * colW + 4;
-  const h = top + 5 * rowH + 16;
+  const h = top + TOP * rowH + 16;
   const x = (f: number) => left + (f - from + 0.5) * colW;
-  const y = (s: number) => top + (5 - s) * rowH;
+  const y = (s: number) => top + (TOP - s) * rowH;
   return (
     <svg className="chord-box" viewBox={`0 0 ${w} ${h}`} role="img" aria-label={grip.map((p) => `${STRING_SHORT[p.s]} ${p.f}`).join(', ')}>
-      {[0, 1, 2, 3, 4, 5].map((s) => {
+      {allStrings().map((s) => {
         const p = grip.find((g) => g.s === s);
         return (
           <g key={s}>
@@ -38,7 +38,7 @@ export function ChordBox({ grip }: { grip: Pos[] }) {
         );
       })}
       {Array.from({ length: SPAN + 1 }, (_, k) => (
-        <line key={k} x1={left + k * colW} x2={left + k * colW} y1={y(5)} y2={y(0)} className={k === 0 && from === 1 ? 'cb-nut' : 'cb-fret'} />
+        <line key={k} x1={left + k * colW} x2={left + k * colW} y1={y(TOP)} y2={y(0)} className={k === 0 && from === 1 ? 'cb-nut' : 'cb-fret'} />
       ))}
       <text x={x(from)} y={h - 3} className="cb-num">
         {from}
@@ -59,7 +59,7 @@ export function ChordChart({ chords, current }: { chords: PhaseChords; current: 
         {chords.slots.map((c, i) => (
           <div key={i} className={`chord${i === current ? ' on' : ''}`}>
             <b>{c.name}</b>
-            <span className="small muted">{c.roman}</span>
+            <span className="small muted" title="Stufe in der Tonart">Stufe {c.roman}</span>
             {hidden ? <span className="chord-hidden">?</span> : <ChordBox grip={c.grip} />}
           </div>
         ))}

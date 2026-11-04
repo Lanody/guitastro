@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Note, Step } from '../data/types';
 import { DEFAULT_BEATS, barSteps, countLabel } from '../music/meter';
-import { STRING_SHORT } from '../music/theory';
+import { STRING_SHORT, TOP } from '../music/theory';
 
 interface Props {
   steps: Step[];
@@ -13,17 +13,19 @@ interface Props {
   allStrings?: boolean;
   /** Static preview: n steps per line, no bar lines, no count row. */
   barLen?: number;
+  /** Group view: note groups of n steps, each bar's rests shrunk to one column per beat; one line (two on narrow screens). */
+  groups?: number;
 }
 
 /**
  * Splits steps into lines of equal time: every step is one column of the same width,
  * so every bar has the same length and the rhythm is visible in the spacing.
- * Lines break only at bar lines (default: up to 16 steps per line, at least one bar).
- * `lineLen` (static previews) breaks every n steps instead.
+ * Lines break only at bar lines (default: two bars per line, so sparse sixteenth bars
+ * like speed bursts don't each get their own staff). `lineLen` (static previews) breaks
+ * every n steps instead.
  */
-export function layoutTab(len: number, sub: number, lineLen?: number, maxSteps?: number, beats = DEFAULT_BEATS): number[][] {
-  const bar = barSteps(sub, beats);
-  const per = lineLen ?? Math.max(bar, Math.floor((maxSteps ?? 16) / bar) * bar);
+export function layoutTab(len: number, sub: number, lineLen?: number, barsPerLine = 2, beats = DEFAULT_BEATS): number[][] {
+  const per = lineLen ?? barSteps(sub, beats) * barsPerLine;
   const lines: number[][] = [];
   for (let i = 0; i < len; i += per) lines.push(Array.from({ length: Math.min(per, len - i) }, (_, k) => i + k));
   return lines;
@@ -55,14 +57,40 @@ function NoteText({ n }: { n: Note }) {
   );
 }
 
-export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStrings, barLen }: Props) {
+/** Group view: all groups in one line, or half of them per line when it doesn't fit. */
+export function groupLines(len: number, group: number, split: boolean): number[][] {
+  const count = Math.ceil(len / group);
+  return layoutTab(len, 1, (split ? Math.ceil(count / 2) : count) * group);
+}
+
+/**
+ * Group view: each note group is followed by the rest of its bar as one narrow rest
+ * column per beat (not one per step), so every bar still counts 1 … 4.
+ */
+export function withRestBeats(steps: Step[], group: number, sub: number, beats = DEFAULT_BEATS) {
+  const played = Math.ceil(group / sub);
+  const pause = Math.max(0, beats - played);
+  const out: Step[] = [];
+  for (let i = 0; i < steps.length; i += group) out.push(...steps.slice(i, i + group), ...Array.from({ length: pause }, () => 'rest' as const));
+  const bar = group + pause;
+  /** Count label and whether the column starts a beat. */
+  const count = (i: number): [string, boolean] => {
+    const p = i % bar;
+    return p < group ? [countLabel(p, sub, beats), p % sub === 0] : [String(played + p - group + 1), true];
+  };
+  return { steps: out, bar, count };
+}
+
+export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStrings, barLen, groups }: Props) {
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
   const box = useRef<HTMLDivElement>(null);
   // Narrow screens: if a line overflows, first tighten the columns (fit 1), then one bar per line (fit 2).
   const [fit, setFit] = useState(0);
   const [width, setWidth] = useState(0);
   const notes = steps.filter((x): x is Note => typeof x === 'object');
-  const lines = notes.length ? layoutTab(steps.length, sub, barLen, fit === 2 ? 1 : undefined, beats) : [];
+  const grouped = groups ? withRestBeats(steps, groups, sub, beats) : null;
+  const cols = grouped?.steps ?? steps;
+  const lines = !notes.length ? [] : grouped ? groupLines(cols.length, grouped.bar, fit === 2) : layoutTab(steps.length, sub, barLen, fit === 2 ? 1 : 2, beats);
   const counted = barLen === undefined;
 
   useEffect(() => {
@@ -80,13 +108,14 @@ export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStr
 
   if (!notes.length) return null;
   const lo = allStrings ? 0 : Math.min(...notes.map((x) => x.s));
-  const hi = allStrings ? 5 : Math.max(...notes.map((x) => x.s));
+  const hi = allStrings ? TOP : Math.max(...notes.map((x) => x.s));
   const strings: number[] = [];
   for (let s = hi; s >= lo; s--) strings.push(s);
 
   const stepW = columnWidth(notes, sub) * (fit ? 0.82 : 1);
-  const bar = barSteps(sub, beats);
-  const ring = sustained(steps);
+  const bar = grouped?.bar ?? barSteps(sub, beats);
+  const ring = sustained(cols);
+  const count = grouped?.count ?? ((i: number): [string, boolean] => [countLabel(i, sub, beats), i % sub === 0]);
 
   return (
     <div className={`tab${fit ? ' compact' : ''}`} role="img" aria-label={counted ? `Tabulatur, ${beats}/4-Takt` : 'Tabulatur'} ref={box}>
@@ -108,9 +137,10 @@ export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStr
             </span>
           ))}
           {idxs.map((i, c) => {
-            const st = steps[i];
+            const st = cols[i];
             const rest = st === 'rest';
             const barStart = counted && c > 0 && i % bar === 0;
+            const [label, beat] = count(i);
             const cls = `${rest ? ' rest' : ''}${barStart ? ' bar' : ''}`;
             return [
               ...strings.map((s, r) => {
@@ -126,8 +156,8 @@ export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStr
                 );
               }),
               counted ? (
-                <span key={`${i}-count`} className={`tab-count${cls}${i % sub === 0 ? ' beat' : ''}`} style={{ gridRow: strings.length + 1, gridColumn: c + 2 }}>
-                  {countLabel(i, sub, beats)}
+                <span key={`${i}-count`} className={`tab-count${cls}${beat ? ' beat' : ''}`} style={{ gridRow: strings.length + 1, gridColumn: c + 2 }}>
+                  {label}
                 </span>
               ) : null,
             ];

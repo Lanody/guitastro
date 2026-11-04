@@ -11,7 +11,7 @@ import { FOCUS_INFO, bpmFor, type Plan } from '../logic/plan';
 import type { AppState, ExerciseResult, HitLog, Rating } from '../logic/state';
 import { DEFAULT_BEATS, fillBars } from '../music/meter';
 import { getScale } from '../music/scales';
-import { TUNING, fretMidi, midiToPc, noteName } from '../music/theory';
+import { STRINGS, fretMidi, lowRoot, midiToPc, noteName } from '../music/theory';
 
 interface Props {
   plan: Plan;
@@ -31,6 +31,8 @@ export const FOCUS_LABEL: Record<Focus, string> = {
 };
 
 const SUB_LABEL: Record<number, string> = { 2: 'Achtel', 3: 'Triolen', 4: 'Sechzehntel' };
+/** Note values the player may switch between; phases in other values (triplets) show no switch. */
+const SUB_CHOICES = [2, 4];
 
 const fmt = (ms: number) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -79,8 +81,8 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
   );
   const sub = subOverride ?? phase.sub;
   const beats = phase.beats ?? DEFAULT_BEATS;
-  // The tab shows whole bars, so the pattern's first note is always on the "1".
-  const shown = useMemo(() => pattern && fillBars(pattern, sub, beats), [pattern, sub, beats]);
+  // The tab shows whole bars, so the pattern's first note is always on the "1" (group view: notes only).
+  const shown = useMemo(() => pattern && (phase.groups ? pattern : fillBars(pattern, sub, beats)), [pattern, sub, beats, phase.groups]);
   const bpm = bpms[ex.key];
   const usesMetronome = phase.metronome !== false;
   const scale = getScale(ex.scaleId ?? plan.scaleId, ex.root ?? plan.root);
@@ -162,7 +164,7 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
   }, [chords, shouldRun]);
 
   // Drone on the tonic of the exercise's key.
-  const droneMidi = TUNING[0] + scale.root;
+  const droneMidi = lowRoot(scale.root);
   useEffect(() => {
     if (drone) droneOn(droneMidi, settings.droneVolume);
     else droneOff();
@@ -268,7 +270,6 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
       }),
     };
   }, [ex.map, chords, chordIdx, scale.root]);
-  const firstOfBlock = idx === 0 || exercises[idx - 1].block !== ex.block;
 
   return (
     <div className="session">
@@ -291,7 +292,7 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
           {plan.focus !== 'standard' && ex.tracksTempo && <span className="chip warn-chip">{FOCUS_INFO[plan.focus].title}</span>}
         </div>
         <h1>
-          {ex.num}. {ex.title}
+          {modIndex + 1}. {ex.title}
         </h1>
         {ex.variant && <p className="variant">Variation: {ex.variant}</p>}
       </section>
@@ -314,6 +315,11 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
       <div className={`relax${relaxing ? ' show' : ''}`} aria-live="polite">
         Lockern – Hände ausschütteln. Der Timer läuft weiter.
       </div>
+
+      <details key={idx} className="card howto" open>
+        <summary>Anleitung</summary>
+        <p>{ex.intro}</p>
+      </details>
 
       <section className="phase-text">
         <p>{phase.text}</p>
@@ -343,7 +349,7 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
           <div className="tab-meta muted small">
             {beats}/4 · {SUB_LABEL[sub]} · {bpm} BPM
           </div>
-          <Tab steps={shown} sub={sub} beats={beats} />
+          <Tab steps={shown} sub={sub} beats={beats} groups={phase.groups} />
         </section>
       )}
 
@@ -370,10 +376,6 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
         </section>
       )}
 
-      <details key={idx} className="card howto" open={firstOfBlock || ex.module === 'C' || ex.module === 'D'}>
-        <summary>Anleitung</summary>
-        <p>{ex.intro}</p>
-      </details>
 
       <footer className="controls">
         <div className="tempo">
@@ -389,9 +391,9 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
           </button>
         </div>
         <div className="toggles">
-          {ex.pattern && ex.tracksTempo && (
+          {ex.pattern && ex.tracksTempo && SUB_CHOICES.includes(phase.sub) && (
             <div className="seg small">
-              {[2, 4].map((v) => (
+              {SUB_CHOICES.map((v) => (
                 <button key={v} className={sub === v ? 'on' : ''} onClick={() => setSubOverride(v)}>
                   {SUB_LABEL[v]}
                 </button>
@@ -489,6 +491,6 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
 function pickThree(date: string, key: string) {
   let h = 0;
   for (const c of date + key) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  const start = h % 4; // 0..3 → three adjacent strings
+  const start = h % (STRINGS - 2); // three adjacent strings
   return [start, start + 1, start + 2];
 }

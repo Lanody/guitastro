@@ -1,4 +1,4 @@
-// YIN pitch detector, tuned for guitar in Drop C (C2 ≈ 65 Hz up to ~1.2 kHz).
+// YIN pitch detector for guitar, from a seven-string in Drop G (G1 ≈ 49 Hz) up to ~1.2 kHz.
 
 export interface PitchResult {
   freq: number;
@@ -14,7 +14,7 @@ export function detectPitch(buf: Float32Array, sampleRate: number, threshold = 0
   if (rms < 0.01) return null;
 
   const minLag = Math.floor(sampleRate / 1300);
-  const maxLag = Math.min(Math.floor(sampleRate / 60), Math.floor(buf.length / 2));
+  const maxLag = Math.min(Math.floor(sampleRate / 45), Math.floor(buf.length / 2));
   const w = buf.length - maxLag;
   const d = new Float32Array(maxLag + 1);
   for (let tau = 1; tau <= maxLag; tau++) {

@@ -2,14 +2,16 @@ import { useRef } from 'react';
 import { audio, metronome } from '../audio/engine';
 import { UNLOCK_DAYS } from '../logic/plan';
 import { initialState, type AppState, type Settings } from '../logic/state';
+import { TuningPicker } from './Guide';
 
 interface Props {
   state: AppState;
   onSettings: (s: Partial<Settings>) => void;
   onReplace: (s: AppState) => void;
+  onGuide: () => void;
 }
 
-export function SettingsScreen({ state, onSettings, onReplace }: Props) {
+export function SettingsScreen({ state, onSettings, onReplace, onGuide }: Props) {
   const s = state.settings;
   const file = useRef<HTMLInputElement>(null);
 
@@ -44,6 +46,24 @@ export function SettingsScreen({ state, onSettings, onReplace }: Props) {
       <h1>Einstellungen</h1>
 
       <section className="card settings-grid">
+        <div className="title-row">
+          <span className="label">Anleitung</span>
+          <button className="btn ghost small" onClick={onGuide}>
+            Öffnen
+          </button>
+        </div>
+        <p className="small muted">Wie deine Lektion entsteht, was die Menüpunkte bedeuten und wo du was einstellst.</p>
+      </section>
+
+      <section className="card settings-grid">
+        <span className="label">Gitarre</span>
+        <p className="small muted">
+          Skalen-Griffbilder, Akkorde, Oktaven, Tabs und Saitennamen werden für diese Stimmung berechnet. Tempo und Fortschritt bleiben beim Wechsel erhalten.
+        </p>
+        <TuningPicker value={s.tuning} onChange={(id) => onSettings({ tuning: id })} />
+      </section>
+
+      <section className="card settings-grid">
         <div>
           <span className="label">Variationen</span>
           <div className="seg small">
@@ -58,7 +78,7 @@ export function SettingsScreen({ state, onSettings, onReplace }: Props) {
             </button>
           </div>
           <p className="small muted">
-            Welche Übungen drankommen, wechselt immer täglich. Diese Einstellung betrifft die Übungen selbst: Das Heft empfiehlt, Fingerfolgen und Lagen zunächst zwei Wochen unverändert zu lassen,
+            Welche Übungen drankommen, wechselt mit jeder Lektion. Diese Einstellung betrifft die Übungen selbst: Fingerfolgen und Lagen bleiben zunächst zwei Wochen gleich, damit sich eine saubere Bewegung festigt;
             danach variieren auch Fingerfolgen, Lagen und Saitenpaare.
           </p>
         </div>
@@ -71,9 +91,9 @@ export function SettingsScreen({ state, onSettings, onReplace }: Props) {
           <input type="range" min={1} max={7} value={s.weeklyGoal} onChange={(e) => onSettings({ weeklyGoal: Number(e.target.value) })} />
         </label>
         <label>
-          Tage pro Skala, bevor die nächste (mit neuem Grundton) kommt: <b>{s.scaleSessions}</b>
+          Lektionen pro Skala, bevor die nächste (mit neuem Grundton) kommt: <b>{s.scaleSessions}</b>
           <input type="range" min={1} max={8} value={s.scaleSessions} onChange={(e) => onSettings({ scaleSessions: Number(e.target.value) })} />
-          <span className="small muted">Empfohlen: 3 – Tag 1 kennenlernen, Tag 2 vertiefen, Tag 3 festigen.</span>
+          <span className="small muted">Empfohlen: 3 – erste Lektion kennenlernen, zweite vertiefen, dritte festigen.</span>
         </label>
       </section>
 

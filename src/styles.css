@@ -226,9 +226,9 @@ button {
   min-height: 36px;
 }
 .seg button.on {
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: var(--shadow);
+  background: var(--teal-soft);
+  color: var(--teal);
+  box-shadow: inset 0 0 0 1px var(--teal);
 }
 .seg.small button {
   padding: 5px 10px;
@@ -1355,6 +1355,7 @@ input[type='range'] {
   background: transparent;
   border-radius: 12px;
   padding: 10px;
+  min-width: 0;
 }
 .badge.sel {
   grid-column: span 2;
@@ -1377,6 +1378,10 @@ input[type='range'] {
 .badge-date {
   color: var(--gold);
   font-weight: 600;
+}
+/* Badge cells can be narrower than the teaser's 120px minimum. */
+.badge .badge-track {
+  min-width: 0;
 }
 
 .heatmap > svg {
@@ -1608,5 +1613,175 @@ input[type='range'] {
   text-anchor: start;
 }
 .root-tabs {
-  margin-top: -4px;
+  margin-top: 10px;
+}
+
+/* Setup, tuning picker, guide ------------------------------------------- */
+
+.home-head > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.help-btn {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--teal);
+  font-weight: 700;
+  font-size: 1.05rem;
+  box-shadow: var(--shadow);
+}
+
+.tuning-picker {
+  display: grid;
+  gap: 14px;
+}
+.tuning-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.tuning-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+}
+.tuning-opt.on {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+  box-shadow: inset 0 0 0 1px var(--teal);
+}
+.tuning-notes {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--ink-2);
+  letter-spacing: 0.04em;
+}
+
+.onboarding {
+  padding-bottom: 24px;
+}
+.steps {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 14px;
+}
+.steps span {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.steps span.past {
+  background: var(--teal-soft);
+}
+.steps span.on {
+  background: var(--teal);
+}
+.onboarding-nav {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, transparent, var(--bg) 30%);
+}
+
+.guide h3,
+.onboarding h3 {
+  margin-top: 1.1rem;
+}
+.guide-points {
+  padding-left: 1.2rem;
+}
+.guide-blocks {
+  list-style: none;
+  counter-reset: block;
+  padding: 0;
+  margin: 12px 0;
+  display: grid;
+  gap: 8px;
+}
+.guide-blocks li {
+  counter-increment: block;
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px 10px 40px;
+  position: relative;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.guide-blocks li::before {
+  content: counter(block);
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--teal);
+  color: var(--on-accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+.guide-block-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.guide-pool {
+  line-height: 1.4;
+}
+.guide-now {
+  border-left: 3px solid var(--gold);
+  background: var(--gold-soft);
+  border-radius: 0 10px 10px 0;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+.guide-menu {
+  margin: 8px 0;
+  display: grid;
+  gap: 10px;
+}
+.guide-menu dt {
+  font-weight: 700;
+  color: var(--teal);
+}
+.guide-menu dd {
+  margin: 2px 0 0;
+}
+.guide-where {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.guide-where th,
+.guide-where td {
+  text-align: left;
+  vertical-align: top;
+  padding: 7px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.guide-where th {
+  font-weight: 600;
+  width: 42%;
+}
+.guide-where td {
+  color: var(--ink-2);
 }
