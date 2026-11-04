@@ -9,7 +9,7 @@
 // Anything tied to the lowest strings (octaves, power chords, open-string
 // rhythms) is computed from the tuning.
 
-import { powerGrip, voiceProgression, namesText, romanText, type Chord, type ChordSlot, type Voicing } from '../music/chords';
+import { powerGrip, triad, voiceProgression, namesText, romanText, type Chord, type ChordSlot, type Voicing } from '../music/chords';
 import { padBar } from '../music/meter';
 import { getScale } from '../music/scales';
 import {
@@ -39,7 +39,7 @@ import {
   type ScaleDef,
 } from '../music/theory';
 import { pick, shuffle, type Rng } from './rng';
-import type { BlockId, Exercise, FretMap, MapDot, Note, Phase, Step } from './types';
+import type { BlockId, Exercise, FretMap, MapDot, Note, Phase, Step, Stroke } from './types';
 
 /** Day 1 of a scale block: learn it · middle days: deepen · last day: recall, transpose, use. */
 export type ScaleStage = 'learn' | 'deepen' | 'apply';
@@ -60,6 +60,8 @@ export interface BuildCtx {
 // ---------------------------------------------------------------------------
 
 const n = (s: number, f: number, t?: Note['t']): Note => (t ? { s, f, t } : { s, f });
+/** A picked note with its pick direction. */
+const picked = (s: number, f: number, stroke: Stroke): Note => ({ s, f, stroke });
 const rests = (k: number): Step[] => Array.from({ length: k }, () => 'rest' as const);
 const holds = (k: number): Step[] => Array.from({ length: k }, () => 'hold' as const);
 
@@ -1106,6 +1108,164 @@ function e4(ctx: BuildCtx): Exercise {
 }
 
 // ---------------------------------------------------------------------------
+// E · Legato und Sweep-Picking: Triller, drei Töne pro Saite, Dreiklänge und
+// Arpeggios. Die oberen fünf Saiten sind in jeder Stimmung wie A D G H e
+// gestimmt, die Griffe werden trotzdem aus der Stimmung berechnet.
+// ---------------------------------------------------------------------------
+
+function e5(ctx: BuildCtx): Exercise {
+  const { v, orig } = choose(ctx, [
+    { b: 4, base: 5 },
+    { b: 5, base: 5 },
+    { b: 3, base: 7 },
+    { b: 4, base: 8 },
+  ]);
+  const s = bs(v.b);
+  // One bar of sixteenths: pick the first note, then hammer-on / pull-off only.
+  const trill = (a: number, b: number): Step[] => {
+    const [fa, fb] = [v.base + a - 1, v.base + b - 1];
+    return Array.from({ length: 16 }, (_, i) => (i === 0 ? n(s, fa) : i % 2 ? n(s, fb, 'h') : n(s, fa, 'p')));
+  };
+  return {
+    key: 'E5',
+    module: 'E',
+    num: 5,
+    title: 'Triller',
+    focus: 'speed',
+    intro: `Nur den ersten Ton jedes Takts anschlagen, danach hält die Greifhand die Saite allein am Klingen: Hammer-on, Pull-off, Hammer-on … Beim Pull-off zupft der Finger die Saite leicht seitlich an, sonst wird der Ton leiser. Ein Finger pro Bund ab Bund ${v.base} auf der ${STRING_DAT[s]}; die Anschlaghand dämpft die übrigen Saiten.`,
+    variant: orig ? undefined : `auf der ${STRING_DAT[s]} ab Bund ${v.base}`,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 4, text: 'Finger 1–2, 1–3, 1–4 – je ein Takt Sechzehntel.', pattern: [...trill(1, 2), ...trill(1, 3), ...trill(1, 4)] },
+      {
+        label: 'Minute 2',
+        seconds: 60,
+        sub: 4,
+        text: 'Die schwächeren Finger: 2–3, 2–4, 3–4. So laut und gleichmäßig wie in Minute 1. Wenn die Hand brennt, kurz lockern.',
+        pattern: [...trill(2, 3), ...trill(2, 4), ...trill(3, 4)],
+      },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function e6(ctx: BuildCtx): Exercise {
+  const sc = ctx.scale;
+  const { v, orig } = choose(ctx, [4, 3, 2]);
+  const [lo, hi] = [bs(v), bs(v + 1)];
+  // Start on the tonic when it sits low on the lower string, else the first scale note from fret 5.
+  const r = midiToPc(sc.root - TUNING[lo]);
+  const g = twoStringGroup(sc, lo, hi, r >= 2 && r <= 7 ? r : 5);
+  const [l0, l1, l2] = g.low;
+  const [h0, h1, h2] = g.high;
+  // Two picks per pass (first and top note); string changes are hammer-ons from nowhere.
+  const roll: Step[] = [
+    n(l0.s, l0.f), n(l1.s, l1.f, 'h'), n(l2.s, l2.f, 'h'), n(h0.s, h0.f, 'h'), n(h1.s, h1.f, 'h'), n(h2.s, h2.f, 'h'),
+    n(h2.s, h2.f), n(h1.s, h1.f, 'p'), n(h0.s, h0.f, 'p'), n(l2.s, l2.f, 'h'), n(l1.s, l1.f, 'p'), n(l0.s, l0.f, 'p'),
+  ];
+  const on = (ps: Pos[]) => `${STRING_SHORT[ps[0].s]} ${fretsTxt(ps)} (Finger ${fingering(ps.map((p) => p.f))})`;
+  return {
+    key: 'E6',
+    module: 'E',
+    num: 6,
+    title: 'Legato: drei Töne pro Saite',
+    focus: 'accuracy',
+    intro: `Drei Töne pro Saite aus ${sc.name}: ${on(g.low)}, ${on(g.high)}. Pro Durchgang nur zwei Anschläge – auf dem ersten und auf dem obersten Ton. Der Saitenwechsel ist ein Hammer-on „aus dem Nichts“: Der Finger trifft die neue Saite so kräftig, dass sie ohne Plektrum klingt.`,
+    variant: orig ? undefined : `Saiten ${pairName(lo, hi)}`,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Achtel. Alle Töne gleich laut – vor allem der Hammer-on auf der neuen Saite.', pattern: [...roll, ...roll] },
+      {
+        label: 'Minute 2',
+        seconds: 60,
+        sub: 3,
+        text: 'Triolen: ein Durchgang pro Takt. Die Anschlaghand dämpft die tieferen Saiten, freie Finger der Greifhand die höheren.',
+        pattern: roll,
+      },
+    ],
+    tracksTempo: true,
+    scaleId: sc.id,
+    root: sc.root,
+  };
+}
+
+/** Third and fifth of a triad in semitones above its root. */
+const chordSteps = (c: Chord) => ({ third: midiToPc(c.pcs[1] - c.root), fifth: midiToPc(c.pcs[2] - c.root) });
+
+/** The day's tonic chord, or with variation another major/minor chord of the progression. */
+function sweepChord(ctx: BuildCtx) {
+  const others = (ctx.progression ?? []).filter((c) => c.degree !== 0 && (c.quality === 'maj' || c.quality === 'min'));
+  return choose(ctx, [triad(ctx.scale, 0), ...others]);
+}
+
+/** Fret on string `s` for a note `semis` above `rootFret` on string `base`. */
+const above = (base: number, rootFret: number, s: number, semis: number) => rootFret + semis - (TUNING[s] - TUNING[base]);
+
+function e7(ctx: BuildCtx): Exercise {
+  const { v: c, orig } = sweepChord(ctx);
+  const { third, fifth } = chordSteps(c);
+  const [g, b, e] = [TOP - 2, TOP - 1, TOP];
+  // Root on the third string from the top, at least fret 3 so the lower frets stay on the neck.
+  const r = midiToPc(c.root - TUNING[g]) < 3 ? midiToPc(c.root - TUNING[g]) + 12 : midiToPc(c.root - TUNING[g]);
+  const [fb, fe, fo] = [above(g, r, b, third), above(g, r, e, fifth), above(g, r, e, 12)];
+  const two: Step[] = [picked(b, fb, 'down'), picked(e, fe, 'down'), picked(e, fo, 'up'), picked(b, fb, 'up')];
+  const three: Step[] = [picked(g, r, 'down'), picked(b, fb, 'down'), picked(e, fe, 'down'), n(e, fo, 'h'), n(e, fe, 'p'), picked(b, fb, 'up')];
+  return {
+    key: 'E7',
+    module: 'E',
+    num: 7,
+    title: 'Sweep-Picking',
+    focus: 'accuracy',
+    intro: `Beim Sweep fällt das Plektrum in einer Bewegung durch mehrere Saiten (⊓ = Abschlag, V = Aufschlag) – wie ein langsamer Akkordanschlag, nur dass jeder Ton allein klingt. Dazu hebt der Greiffinger ab, sobald der nächste Ton kommt. Dreiklang ${c.name}: ${STRING_SHORT[g]} ${r}, ${STRING_SHORT[b]} ${fb}, ${STRING_SHORT[e]} ${fe} und ${fo}.`,
+    variant: orig ? undefined : `Dreiklang ${c.name} (${c.roman})`,
+    phases: [
+      {
+        label: 'Minute 1',
+        seconds: 60,
+        sub: 2,
+        text: `Zwei Saiten: ein Abschlag durch ${STRING_SHORT[b]} und ${STRING_SHORT[e]}, auf dem Rückweg ein Aufschlag durch ${STRING_SHORT[e]} und ${STRING_SHORT[b]}. Das Plektrum drückt durch, statt jede Saite einzeln zu zupfen.`,
+        pattern: [...two, ...two],
+      },
+      {
+        label: 'Minute 2',
+        seconds: 60,
+        sub: 3,
+        text: `Drei Saiten als Triolen: ein Abschlag durch alle drei, oben Hammer-on und Pull-off, zurück mit Aufschlag auf der ${STRING_DAT[b]}. Kein Ton darf mit dem nächsten zusammenklingen.`,
+        pattern: [...three, ...three],
+      },
+    ],
+    tracksTempo: true,
+  };
+}
+
+function e8(ctx: BuildCtx): Exercise {
+  const { v: c, orig } = sweepChord(ctx);
+  const { third, fifth } = chordSteps(c);
+  const [a, d, g, b, e] = [TOP - 4, TOP - 3, TOP - 2, TOP - 1, TOP];
+  // Root on the fifth string from the top; fret 12 instead of the open string.
+  const r = midiToPc(c.root - TUNING[a]) || 12;
+  const at = (s: number, semis: number) => above(a, r, s, semis);
+  const [fa3, fd, fg, fb, fe, fo] = [r + third, at(d, fifth), at(g, 12), at(b, 12 + third), at(e, 12 + fifth), at(e, 24)];
+  // Up with downstrokes, top note by hammer-on, back down with upstrokes: one pass = 12 notes.
+  const sweep: Step[] = [
+    picked(a, r, 'down'), n(a, fa3, 'h'), picked(d, fd, 'down'), picked(g, fg, 'down'), picked(b, fb, 'down'), picked(e, fe, 'down'),
+    n(e, fo, 'h'), n(e, fe, 'p'), picked(b, fb, 'up'), picked(g, fg, 'up'), picked(d, fd, 'up'), picked(a, fa3, 'up'),
+  ];
+  return {
+    key: 'E8',
+    module: 'E',
+    num: 8,
+    title: 'Sweep-Arpeggio',
+    focus: 'speed',
+    intro: `Arpeggio ${c.name} über fünf Saiten, Grundton ${noteName(c.root)} auf der ${STRING_DAT[a]} (Bund ${r}). Aufwärts nur Abschläge, abwärts nur Aufschläge; auf der untersten und obersten Saite des Arpeggios verbinden Hammer-on und Pull-off. Beim Wiederholen wird der erste Ton zum Pull-off. Jeder Ton einzeln – die Greifhand dämpft, was nicht klingen soll.`,
+    variant: orig ? undefined : `Arpeggio ${c.name} (${c.roman})`,
+    phases: [
+      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Achtel. Langsam genug, dass jeder Ton gleich laut und getrennt klingt.', pattern: [...sweep, ...sweep] },
+      { label: 'Minute 2', seconds: 60, sub: 3, text: 'Triolen: ein Durchgang pro Takt. Nur wenn Minute 1 sauber war – sonst bei Achteln bleiben.', pattern: sweep },
+    ],
+    tracksTempo: true,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // R · Rhythmus & Timing: Palm-Mute-Riffs auf dem Grundton des Tages.
 // ---------------------------------------------------------------------------
 
@@ -1308,7 +1468,7 @@ export const MODULE_INFO = {
   B: { name: 'Alle Saiten', short: 'Saitenwechsel, Sprünge, Moll-Griffbild' },
   C: { name: 'Skalen verstehen', short: 'Hören, finden, benutzen' },
   D: { name: 'Polyrhythmus', short: '3:2, 2:3, 4:3, 3:4, Gruppen über 4/4' },
-  E: { name: 'Zusatz-Technik', short: 'Tremolo, Lagenwechsel, Oktaven, Griffbrett' },
+  E: { name: 'Zusatz-Technik', short: 'Tremolo, Lagenwechsel, Oktaven, Griffbrett, Legato, Sweep-Picking' },
   R: { name: 'Rhythmus', short: 'Unterteilungen, Gallop, Synkopen, Stopps' },
   K: { name: 'Akkorde', short: 'Powerchords und Dreiklänge' },
   I: { name: 'Improvisation', short: 'Über die Akkordfolge spielen' },
@@ -1316,8 +1476,8 @@ export const MODULE_INFO = {
 
 /** The daily 30 minutes, in playing order. */
 export const BLOCK_INFO: Record<BlockId, { name: string; minutes: number; short: string }> = {
-  speed: { name: 'Geschwindigkeit', minutes: 6, short: 'Wechselschlag, Bursts, Legato – das Tempo wächst mit' },
-  accuracy: { name: 'Treffsicherheit', minutes: 6, short: 'Saitensprünge, Lagenwechsel, Oktaven, Griffbrett' },
+  speed: { name: 'Geschwindigkeit', minutes: 6, short: 'Wechselschlag, Bursts, Legato, Sweeps – das Tempo wächst mit' },
+  accuracy: { name: 'Treffsicherheit', minutes: 6, short: 'Saitensprünge, Lagenwechsel, Oktaven, Legato, Sweeps' },
   rhythm: { name: 'Rhythmus & Timing', minutes: 3, short: 'Unterteilungen, Gallop, Synkopen, Polyrhythmen' },
   scale: { name: 'Skala', minutes: 6, short: 'Hören, finden, vertiefen – in wechselnden Tonarten' },
   chords: { name: 'Akkordfolge', minutes: 6, short: 'Powerchords und Dreiklänge sauber wechseln' },
@@ -1346,6 +1506,10 @@ export const BUILDERS: Record<string, (ctx: BuildCtx) => Exercise> = {
   E2: e2,
   E3: e3,
   E4: e4,
+  E5: e5,
+  E6: e6,
+  E7: e7,
+  E8: e8,
   R1: r1,
   R2: r2,
   R3: r3,

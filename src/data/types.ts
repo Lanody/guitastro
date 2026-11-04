@@ -3,10 +3,13 @@ import type { Pos } from '../music/theory';
 
 /** h = hammer-on onto this note, p = pull-off onto it, ~ = vibrato. */
 export type Tech = 'h' | 'p' | '~';
+/** Pick direction, shown above the tab where it matters (sweep picking). */
+export type Stroke = 'down' | 'up';
 export interface Note {
   s: number;
   f: number;
   t?: Tech;
+  stroke?: Stroke;
 }
 /** One grid step: a note, a rest, or the previous note ringing on. */
 export type Step = Note | 'rest' | 'hold';

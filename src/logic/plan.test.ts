@@ -48,7 +48,7 @@ describe('modules', () => {
                 ? e.scaleId
                   ? getScale(e.scaleId, e.root)
                   : NATURAL_MINOR
-                : e.module === 'C' || ['E1', 'E3'].includes(e.key)
+                : e.module === 'C' || ['E1', 'E3', 'E6'].includes(e.key)
                   ? getScale(e.scaleId ?? sc.id, e.root ?? sc.root)
                   : null;
               if (scale) expect(inScale(scale, fretMidi(nt.s, nt.f)), `${e.key} ${scale.name} ${nt.s}:${nt.f}`).toBe(true);

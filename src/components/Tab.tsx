@@ -47,6 +47,9 @@ function columnWidth(notes: Note[], sub: number) {
   return Math.max(sub >= 4 ? 1.4 : 1.9, digits * 0.62 + 0.4);
 }
 
+/** Down- and upstroke marks as in printed tab. */
+const STROKE_MARK = { down: '⊓', up: 'V' } as const;
+
 function NoteText({ n }: { n: Note }) {
   return (
     <span className="tab-num">
@@ -112,13 +115,15 @@ export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStr
   const strings: number[] = [];
   for (let s = hi; s >= lo; s--) strings.push(s);
 
+  // Pick directions get their own row above the strings (only when a pattern marks them).
+  const strokes = notes.some((x) => x.stroke) ? 1 : 0;
   const stepW = columnWidth(notes, sub) * (fit ? 0.82 : 1);
   const bar = grouped?.bar ?? barSteps(sub, beats);
   const ring = sustained(cols);
   const count = grouped?.count ?? ((i: number): [string, boolean] => [countLabel(i, sub, beats), i % sub === 0]);
 
   return (
-    <div className={`tab${fit ? ' compact' : ''}`} role="img" aria-label={counted ? `Tabulatur, ${beats}/4-Takt` : 'Tabulatur'} ref={box}>
+    <div className={`tab${fit ? ' compact' : ''}`} role="img" aria-label={`Tabulatur${counted ? `, ${beats}/4-Takt` : ''}${strokes ? ', mit Anschlagsrichtung (⊓ ab, V auf)' : ''}`} ref={box}>
       {lines.map((idxs, li) => (
         <div
           key={li}
@@ -128,11 +133,11 @@ export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStr
           className="tab-line"
           style={{
             gridTemplateColumns: `auto repeat(${idxs.length}, ${stepW}em)`,
-            gridTemplateRows: `repeat(${strings.length}, 1.7em)${counted ? ' 1.3em' : ''}`,
+            gridTemplateRows: `${strokes ? '1.2em ' : ''}repeat(${strings.length}, 1.7em)${counted ? ' 1.3em' : ''}`,
           }}
         >
           {strings.map((s, r) => (
-            <span key={`l${s}`} className="tab-label" style={{ gridRow: r + 1, gridColumn: 1 }}>
+            <span key={`l${s}`} className="tab-label" style={{ gridRow: r + 1 + strokes, gridColumn: 1 }}>
               {STRING_SHORT[s]}
             </span>
           ))}
@@ -143,20 +148,25 @@ export const Tab = memo(function Tab({ steps, sub, beats = DEFAULT_BEATS, allStr
             const [label, beat] = count(i);
             const cls = `${rest ? ' rest' : ''}${barStart ? ' bar' : ''}`;
             return [
+              strokes ? (
+                <span key={`${i}-stroke`} className="tab-stroke" style={{ gridRow: 1, gridColumn: c + 2 }}>
+                  {typeof st === 'object' && st.stroke ? STROKE_MARK[st.stroke] : null}
+                </span>
+              ) : null,
               ...strings.map((s, r) => {
                 const note = typeof st === 'object' && st.s === s ? st : null;
                 return (
                   <span
                     key={`${i}-${s}`}
                     className={`tab-cell${cls}${ring[i] === s ? ' hold' : ''}`}
-                    style={{ gridRow: r + 1, gridColumn: c + 2 }}
+                    style={{ gridRow: r + 1 + strokes, gridColumn: c + 2 }}
                   >
                     {note ? <NoteText n={note} /> : null}
                   </span>
                 );
               }),
               counted ? (
-                <span key={`${i}-count`} className={`tab-count${cls}${beat ? ' beat' : ''}`} style={{ gridRow: strings.length + 1, gridColumn: c + 2 }}>
+                <span key={`${i}-count`} className={`tab-count${cls}${beat ? ' beat' : ''}`} style={{ gridRow: strings.length + 1 + strokes, gridColumn: c + 2 }}>
                   {label}
                 </span>
               ) : null,

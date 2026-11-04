@@ -12,7 +12,7 @@ import { TUNINGS, isDrop, noteName, tuningById, type Tuning } from '../music/the
 // how the daily lesson is put together, what the tabs do, where to set what.
 
 /** Short names for the rotation lists – a few builder titles only make sense inside a session. */
-const TITLE_OVERRIDE: Record<string, string> = { A3: 'Kurzer Skalen-Lauf', B1: 'Chromatik über alle Saiten', B4: 'Moll-Griffbild als Legato' };
+const TITLE_OVERRIDE: Record<string, string> = { A3: 'Kurzer Skalen-Lauf', B1: 'Chromatik über alle Saiten', B4: 'Moll-Griffbild als Legato', E7: 'Sweep-Picking (Dreiklänge)', E8: 'Sweep-Arpeggio' };
 
 function poolTitles(block: keyof typeof POOLS) {
   const ctx = { rng: rngFrom('guide'), vary: false, scale: getScale('aeolian') };
@@ -125,7 +125,7 @@ export function PlanGuide({ state }: { state: AppState }) {
 
       <h3>Warum jeden Tag andere Übungen?</h3>
       <p className="small">
-        Die Auswahl rückt mit jeder <b>gespeicherten Lektion</b> eine Stelle weiter – nicht nach Kalendertag. Lässt du einen Tag aus, verpasst du also nichts. Jede Übung kommt alle 2–3 Lektionen
+        Die Auswahl rückt mit jeder <b>gespeicherten Lektion</b> eine Stelle weiter – nicht nach Kalendertag. Lässt du einen Tag aus, verpasst du also nichts. Jede Übung kommt alle 3 Lektionen
         wieder: oft genug, damit das Tempo wachsen kann.
       </p>
 

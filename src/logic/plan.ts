@@ -19,11 +19,11 @@ export function variationUnlocked(state: AppState, today = todayKey()) {
 /**
  * Rotating pools for the technique blocks: each day takes the next `perDay`
  * exercises, so the mix changes daily while every exercise still comes back
- * every two to three days – often enough for the tempo to grow.
+ * every three days – often enough for the tempo to grow.
  */
 export const POOLS: Record<'speed' | 'accuracy' | 'rhythm', { keys: string[]; perDay: number }> = {
-  speed: { keys: ['A1', 'A6', 'B1', 'E1', 'A3', 'B5', 'A4'], perDay: 3 },
-  accuracy: { keys: ['A2', 'E4', 'A5', 'E2', 'B2', 'E3', 'B4'], perDay: 3 },
+  speed: { keys: ['A1', 'A6', 'E5', 'B1', 'E1', 'A4', 'A3', 'B5', 'E8'], perDay: 3 },
+  accuracy: { keys: ['A2', 'E4', 'E6', 'A5', 'E2', 'E7', 'B2', 'E3', 'B4'], perDay: 3 },
   rhythm: { keys: ['R1', 'D1', 'R2', 'D4', 'R3', 'D2', 'R4', 'D3'], perDay: 1 },
 };
 

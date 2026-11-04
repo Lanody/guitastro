@@ -778,6 +778,15 @@ button {
   font-weight: 500;
   color: var(--muted);
 }
+/* Pick direction above the strings: ⊓ = downstroke, V = upstroke. */
+.tab-stroke {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  font-size: 0.72em;
+  font-weight: 600;
+  color: var(--muted);
+}
 /* A held note: a thick line on its string until the next note or rest. */
 .tab-cell.hold {
   background: linear-gradient(var(--muted), var(--muted)) center / 100% 3px no-repeat;

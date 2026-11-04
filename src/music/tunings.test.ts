@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { BUILDERS, moduleA, moduleB, moduleD, patternNotes, scaleBlock, type BuildCtx, type ScaleStage } from '../data/exercises';
 import { rngFrom } from '../data/rng';
 import type { Exercise } from '../data/types';
-import { powerGrip, progressionFor, voiceProgression } from './chords';
+import { powerGrip, progressionFor, triad, voiceProgression } from './chords';
 import { ROOT_ROTATION, SCALES, getScale } from './scales';
 import {
   HOME,
@@ -131,11 +131,20 @@ for (const t of TUNINGS) {
                 expect(nt.s, where).toBeLessThanOrEqual(TOP);
                 expect(nt.f, where).toBeGreaterThanOrEqual(0);
                 expect(nt.f, where).toBeLessThanOrEqual(17);
-                const scale = ['A3', 'A5', 'B3', 'B4', 'B5'].includes(e.key) || e.module === 'C' || ['E1', 'E3'].includes(e.key) ? getScale(e.scaleId ?? sc.id, e.root ?? sc.root) : null;
+                const scale = ['A3', 'A5', 'B3', 'B4', 'B5'].includes(e.key) || e.module === 'C' || ['E1', 'E3', 'E6'].includes(e.key) ? getScale(e.scaleId ?? sc.id, e.root ?? sc.root) : null;
                 if (scale) expect(inScale(scale, fretMidi(nt.s, nt.f)), `${where} ${scale.name}`).toBe(true);
               }
             }
             for (const p of e.phases) expect(p.text, `${e.key} ${p.label}`).not.toMatch(/undefined|NaN/);
+            if (e.key === 'E7' || e.key === 'E8') {
+              // Sweeps: only chord tones, and every picked note says which way the pick goes.
+              const pcs = progressionFor(sc, seed).concat(triad(sc, 0)).map((ch) => ch.pcs);
+              for (const pat of allPatterns(e)) {
+                const ns = patternNotes(pat);
+                expect(pcs.some((cs) => ns.every((x) => cs.includes(midiToPc(fretMidi(x.s, x.f))))), `${e.key} ${sc.name}`).toBe(true);
+                for (const x of ns) expect(!!x.stroke !== !!x.t, `${e.key} ${x.s}:${x.f}`).toBe(true);
+              }
+            }
           }
         }
       }
