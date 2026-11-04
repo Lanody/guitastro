@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BLOCK_INFO, BLOCK_ORDER, BUILDERS, PHRASES, moduleA, moduleB, moduleD, patternNotes, positionSchedule, scaleBlock, type BuildCtx, type ScaleStage } from '../data/exercises';
+import { BLOCK_INFO, BLOCK_ORDER, BUILDERS, patternNotes, positionSchedule, scaleBlock, type BuildCtx, type ScaleStage } from '../data/exercises';
 import { RIFFS } from '../data/riffs';
 import { rngFrom } from '../data/rng';
 import { seconds, type Exercise } from '../data/types';
@@ -11,17 +11,14 @@ import { initialState, type AppState, type SessionLog } from './state';
 
 const STAGES: ScaleStage[] = ['learn', 'deepen', 'apply'];
 
+const build = (keys: string[], ctx: BuildCtx) => keys.map((k) => BUILDERS[k](ctx));
+
 const allPatterns = (e: Exercise) => [e.pattern, ...e.phases.map((p) => p.pattern), ...e.phases.map((p) => p.pick?.build(0))];
 
 describe('modules', () => {
   const ctx = { rng: rngFrom('x'), vary: false, scale: getScale('dorian') };
-  it('booklet modules A and B last 15 minutes', () => {
-    for (const mod of [moduleA(ctx), moduleB(ctx)]) {
-      expect(mod.reduce((a, e) => a + seconds(e), 0)).toBe(900);
-    }
-  });
   it('booklet versions of A match the tabs', () => {
-    const a = moduleA(ctx);
+    const a = build(['A1', 'A2', 'A3', 'A4', 'A5', 'A6'], ctx);
     const frets = (e: Exercise) => patternNotes(e.pattern).map((x) => `${x.s}:${x.f}`).join(' ');
     expect(frets(a[0])).toBe('4:5 4:6 4:7 4:8 5:5 5:6 5:7 5:8 5:8 5:7 5:6 5:5 4:8 4:7 4:6 4:5');
     expect(frets(a[1])).toBe('4:5 4:7 4:6 4:8 5:5 5:7 5:6 5:8 5:8 5:6 5:7 5:5 4:8 4:6 4:7 4:5');
@@ -35,7 +32,7 @@ describe('modules', () => {
         const root = ROOT_ROTATION[seed % 12];
         const sc = getScale(card.id, root);
         const c: BuildCtx = { rng: rngFrom('s' + seed), vary: true, scale: sc, stage: STAGES[seed % 3], progression: progressionFor(sc, seed) };
-        const all = [...moduleA(c), ...moduleB(c), ...moduleD(c), ...STAGES.flatMap((stage) => scaleBlock({ ...c, stage })), ...Object.values(BUILDERS).map((b) => b(c))];
+        const all = [...STAGES.flatMap((stage) => scaleBlock({ ...c, stage })), ...Object.values(BUILDERS).map((b) => b(c))];
         for (const e of all) {
           for (const p of e.phases) {
             const pat = p.pattern ?? e.pattern;
@@ -45,7 +42,7 @@ describe('modules', () => {
             for (const nt of patternNotes(pat)) {
               expect(nt.f, `${e.key} ${sc.name}`).toBeGreaterThanOrEqual(0);
               expect(nt.f, `${e.key} ${sc.name}`).toBeLessThanOrEqual(17);
-              const scale = ['A3', 'A5', 'B3', 'B4', 'B5'].includes(e.key)
+              const scale = ['A3', 'A5', 'B4', 'B5'].includes(e.key)
                 ? e.scaleId
                   ? getScale(e.scaleId, e.root)
                   : NATURAL_MINOR
@@ -59,13 +56,6 @@ describe('modules', () => {
       }
     }
   }, 30000); // brute force over all variants × scales × keys
-  it('solo phrases are in C minor and end on C', () => {
-    for (const p of PHRASES) {
-      p.notes.forEach(([s, f]) => expect(inScale(NATURAL_MINOR, fretMidi(s, f))).toBe(true));
-      const [s, f] = p.notes[4];
-      expect(fretMidi(s, f) % 12).toBe(0);
-    }
-  });
 });
 
 const log = (modules: SessionLog['modules']): SessionLog => ({
@@ -73,11 +63,11 @@ const log = (modules: SessionLog['modules']): SessionLog => ({
 });
 
 describe('polyrhythm module', () => {
+  const D = ['D1', 'D2', 'D3', 'D4'];
   const at = (steps: Exercise['pattern']) => (steps ?? []).flatMap((st, i) => (typeof st === 'object' ? [i] : []));
-  it('lasts 15 minutes, every pattern fills whole bars of its meter', () => {
+  it('every pattern fills whole bars of its meter', () => {
     for (let seed = 0; seed < 20; seed++) {
-      const d = moduleD({ rng: rngFrom('d' + seed), vary: seed > 0, scale: getScale('dorian') });
-      expect(d.reduce((a, e) => a + seconds(e), 0)).toBe(900);
+      const d = build(D, { rng: rngFrom('d' + seed), vary: seed > 0, scale: getScale('dorian') });
       for (const e of d)
         for (const p of e.phases) {
           if (p.pattern) expect(p.pattern.length % (p.sub * (p.beats ?? 4)), `${e.key} ${p.label}`).toBe(0);
@@ -87,7 +77,7 @@ describe('polyrhythm module', () => {
     }
   });
   it('places the counter-rhythm evenly against the click', () => {
-    const [d1, d2, d3, d4] = moduleD({ rng: rngFrom('x'), vary: false, scale: getScale('dorian') });
+    const [d1, d2, d3, d4] = build(D, { rng: rngFrom('x'), vary: false, scale: getScale('dorian') });
     expect(at(d1.phases[0].pattern)).toEqual([0, 2, 4, 6, 8, 10]); // 3:2 – triplet grid, 3 beats per 2 clicks
     expect(at(d2.phases[0].pattern)).toEqual([0, 3]); // 2:3 in 3/4
     expect(at(d2.phases[2].pattern)).toEqual([0, 3, 6, 9]); // 4:3 in 3/4

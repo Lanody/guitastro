@@ -125,20 +125,21 @@ export function buildPlan(state: AppState, today = todayKey()): Plan {
   const riff = riffWeek(state, today);
   const ctxFor = (k: string): BuildCtx => ({ rng: rngFrom(`${seed}:${k}`), vary, scale, stage, blockDay, progression, riff });
   const trim = (e: Exercise) => (TRIM[e.key] ? { ...e, phases: TRIM[e.key].map((i) => e.phases[i]) } : e);
-  const exercises: Exercise[] = [];
-  for (const block of BLOCK_ORDER) {
-    const list =
-      block === 'scale'
-        ? scaleBlock(ctxFor('scale'))
-        : block === 'riff'
-          ? [riffBlock(ctxFor('riff'))]
-          : block === 'chords'
-            ? [BUILDERS.K1(ctxFor('K1'))]
-            : block === 'improv'
-              ? [BUILDERS.I1(ctxFor('I1'))]
-              : poolKeys(block, day).map((k) => trim(BUILDERS[k](ctxFor(k))));
-    exercises.push(...list.map((e) => ({ ...e, block })));
-  }
+  const blockExercises = (block: BlockId): Exercise[] => {
+    switch (block) {
+      case 'scale':
+        return scaleBlock(ctxFor('scale'));
+      case 'riff':
+        return [riffBlock(ctxFor('riff'))];
+      case 'chords':
+        return [BUILDERS.K1(ctxFor('K1'))];
+      case 'improv':
+        return [BUILDERS.I1(ctxFor('I1'))];
+      default:
+        return poolKeys(block, day).map((k) => trim(BUILDERS[k](ctxFor(k))));
+    }
+  };
+  const exercises = BLOCK_ORDER.flatMap((block) => blockExercises(block).map((e) => ({ ...e, block })));
   return {
     date: today,
     blocks: BLOCK_ORDER,

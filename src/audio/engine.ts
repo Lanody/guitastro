@@ -200,18 +200,21 @@ export function droneOn(midi = 36, volume = 0.5) {
   lp.type = 'lowpass';
   lp.frequency.value = 700;
   lp.Q.value = 0.5;
-  const oscs = [
-    { type: 'sawtooth' as OscillatorType, f: midiToFreq(midi), lvl: 0.18, detune: -4 },
-    { type: 'sawtooth' as OscillatorType, f: midiToFreq(midi), lvl: 0.18, detune: 4 },
-    { type: 'sine' as OscillatorType, f: midiToFreq(midi + 12), lvl: 0.25, detune: 0 },
-    { type: 'sine' as OscillatorType, f: midiToFreq(midi + 19), lvl: 0.06, detune: 0 },
-  ].map((o) => {
+  const oscs = (
+    [
+      // type, semitones above the drone note, level, detune (cents)
+      ['sawtooth', 0, 0.18, -4],
+      ['sawtooth', 0, 0.18, 4],
+      ['sine', 12, 0.25, 0],
+      ['sine', 19, 0.06, 0],
+    ] as const
+  ).map(([type, up, lvl, detune]) => {
     const osc = ctx.createOscillator();
     const og = ctx.createGain();
-    osc.type = o.type;
-    osc.frequency.value = o.f;
-    osc.detune.value = o.detune;
-    og.gain.value = o.lvl;
+    osc.type = type;
+    osc.frequency.value = midiToFreq(midi + up);
+    osc.detune.value = detune;
+    og.gain.value = lvl;
     osc.connect(og).connect(lp);
     osc.start();
     return osc;

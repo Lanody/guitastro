@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import type { PhaseChords } from '../data/types';
 import { STRING_SHORT, TOP, allStrings, type Pos } from '../music/theory';
 
@@ -50,7 +50,7 @@ export function ChordBox({ grip }: { grip: Pos[] }) {
 const BEATS: Record<number, string> = { 2: 'halber Takt', 4: '1 Takt', 8: '2 Takte' };
 
 /** The phase's progression: one card per chord, the sounding one highlighted. */
-export function ChordChart({ chords, current }: { chords: PhaseChords; current: number }) {
+export const ChordChart = memo(function ChordChart({ chords, current }: { chords: PhaseChords; current: number }) {
   const [reveal, setReveal] = useState(false);
   const hidden = chords.hide && !reveal;
   return (
@@ -74,4 +74,4 @@ export function ChordChart({ chords, current }: { chords: PhaseChords; current: 
       </div>
     </section>
   );
-}
+});

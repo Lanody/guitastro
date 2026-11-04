@@ -36,8 +36,7 @@ export default function App() {
   // Before anything below builds plans, tabs or fretboards for it.
   setTuning(state.settings.tuning);
 
-  const update = useCallback((fn: (s: AppState) => AppState) => setState((s) => fn(s)), []);
-  const onSettings = useCallback((p: Partial<Settings>) => update((s) => ({ ...s, settings: { ...s.settings, ...p } })), [update]);
+  const onSettings = useCallback((p: Partial<Settings>) => setState((s) => ({ ...s, settings: { ...s.settings, ...p } })), []);
 
   const toast = useCallback((fresh: AchievementDef[]) => {
     if (!fresh.length) return;
@@ -58,7 +57,7 @@ export default function App() {
 
   const start = (p: Plan) => {
     audio(); // unlock audio on this user gesture (iOS)
-    update((s) => (s.firstDay ? s : { ...s, firstDay: todayKey() }));
+    setState((s) => (s.firstDay ? s : { ...s, firstDay: todayKey() }));
     setFinished(null);
     setPlan(p);
   };
@@ -115,50 +114,36 @@ export default function App() {
     </div>
   );
 
-  if (!state.settings.onboarded) {
-    return (
-      <main className="app">
-        <Onboarding state={state} onSettings={onSettings} />
-      </main>
-    );
-  }
+  // Full-screen flows without the tab bar: setup, a running lesson, its summary, the reward screen.
+  const flow = !state.settings.onboarded ? (
+    <Onboarding state={state} onSettings={onSettings} />
+  ) : done ? (
+    <Done
+      state={state}
+      {...done}
+      onContinue={() => {
+        setDone(null);
+        setScreen('history');
+      }}
+    />
+  ) : plan && finished ? (
+    <Summary plan={plan} state={state} results={finished.results} seconds={finished.seconds} onSave={saveSession} />
+  ) : plan ? (
+    <Session
+      plan={plan}
+      state={state}
+      onHit={addHit}
+      onFinish={(results, seconds) => (results.length ? setFinished({ results, seconds }) : setPlan(null))}
+      onExit={() => setPlan(null)}
+    />
+  ) : null;
 
-  if (done) {
+  if (flow) {
     return (
-      <main className="app">
-        <Done
-          state={state}
-          {...done}
-          onContinue={() => {
-            setDone(null);
-            setScreen('history');
-          }}
-        />
-      </main>
-    );
-  }
-
-  if (plan && finished) {
-    return (
-      <main className="app">
-        <Summary plan={plan} state={state} results={finished.results} seconds={finished.seconds} onSave={saveSession} />
+      <>
+        <main className="app">{flow}</main>
         {toastList}
-      </main>
-    );
-  }
-
-  if (plan) {
-    return (
-      <main className="app">
-        <Session
-          plan={plan}
-          state={state}
-          onHit={addHit}
-          onFinish={(results, seconds) => (results.length ? setFinished({ results, seconds }) : setPlan(null))}
-          onExit={() => setPlan(null)}
-        />
-        {toastList}
-      </main>
+      </>
     );
   }
 
@@ -169,7 +154,7 @@ export default function App() {
           <Home
             state={state}
             onStart={start}
-            onReroll={() => update((s) => ({ ...s, reroll: s.reroll + 1 }))}
+            onReroll={() => setState((s) => ({ ...s, reroll: s.reroll + 1 }))}
             go={setScreen}
           />
         )}
@@ -180,7 +165,7 @@ export default function App() {
             state={state}
             onEar={addHits}
             onChoose={(id, root, pinned) =>
-              update((s) => {
+              setState((s) => {
                 const same = s.scale.id === id && (s.scale.root ?? 0) === root;
                 return { ...s, scale: { id, root, pinned, sessions: same ? s.scale.sessions : 0 } };
               })

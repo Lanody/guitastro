@@ -186,6 +186,7 @@ export function inKey(card: ScaleCard, root = ROOT_PC): ScaleDef {
   };
 }
 
+export const MAJOR = [0, 2, 4, 5, 7, 9, 11];
 export const NAT_MINOR = [0, 2, 3, 5, 7, 8, 10];
 
 export function midiToPc(midi: number) {
@@ -209,8 +210,8 @@ export function fretMidi(string: number, fret: number) {
   return TUNING[string] + fret;
 }
 
-export function inScale(scale: { intervals: number[]; root?: number }, midi: number) {
-  return scale.intervals.includes(midiToPc(midi - (scale.root ?? ROOT_PC)));
+export function inScale(scale: ScaleLike, midi: number) {
+  return scale.intervals.includes(degreeOf(scale, midi));
 }
 
 /** Semitones above the tonic (0–11) of a sounding note. */
@@ -223,8 +224,17 @@ export interface Pos {
   f: number;
 }
 
+/** Anything with scale steps and an optional tonic (defaults to ROOT_PC). */
+export type ScaleLike = { intervals: number[]; root?: number };
+
+/** Role of a sounding note in a scale card: tonic, colour tone or plain scale note. */
+export function toneKind(scale: ScaleDef, midi: number): 'root' | 'color' | 'note' {
+  const deg = degreeOf(scale, midi);
+  return deg === 0 ? 'root' : scale.color.includes(deg) ? 'color' : 'note';
+}
+
 /** All scale positions in a fret window, for the fretboard map. */
-export function fretboardNotes(scale: { intervals: number[]; root?: number }, from = 5, to = 12): Pos[] {
+export function fretboardNotes(scale: ScaleLike, from = 5, to = 12): Pos[] {
   const out: Pos[] = [];
   for (let s = 0; s < STRINGS; s++) {
     for (let f = from; f <= to; f++) if (inScale(scale, fretMidi(s, f))) out.push({ s, f });
@@ -232,8 +242,11 @@ export function fretboardNotes(scale: { intervals: number[]; root?: number }, fr
   return out;
 }
 
+/** Scale steps up an octave and back down: 0 … 12 … 0. */
+export const upAndDown = (intervals: number[]) => [...intervals, 12, ...[...intervals].reverse()];
+
 /** Ascending scale notes (MIDI) starting at `start`. */
-export function scaleRun(scale: { intervals: number[]; root?: number }, start: number, count: number): number[] {
+export function scaleRun(scale: ScaleLike, start: number, count: number): number[] {
   const out: number[] = [];
   for (let m = start; out.length < count; m++) if (inScale(scale, m)) out.push(m);
   return out;
@@ -245,7 +258,7 @@ export function scaleRun(scale: { intervals: number[]; root?: number }, start: n
  * up to three notes per string, never wider than `maxSpan` frets on one string.
  */
 export function sixStringPath(
-  scale: { intervals: number[]; root?: number },
+  scale: ScaleLike,
   startMidi?: number,
   maxSpan = 4,
 ): Pos[] {
@@ -277,7 +290,7 @@ const shapeOf = (path: Pos[]) => path.map((p) => `${p.s}:${p.f - path[0].f}`).jo
 const playable = (path: Pos[]) => new Set(path.map((p) => p.s)).size === STRINGS && path.every((p) => p.f >= 0 && p.f <= 17);
 
 /** Path from `fret` on the low string, or from the next lower scale note if that fret isn't in the scale. */
-function pathFrom(scale: { intervals: number[]; root?: number }, fret: number, maxSpan: number) {
+function pathFrom(scale: ScaleLike, fret: number, maxSpan: number) {
   let start = TUNING[0] + fret;
   while (!inScale(scale, start)) start--;
   return sixStringPath(scale, start, maxSpan);
@@ -290,7 +303,7 @@ function pathFrom(scale: { intervals: number[]; root?: number }, fret: number, m
  * If neither fits (blues in E♭; some keys on seven strings), the path starts on
  * the next scale note above instead.
  */
-function placed(scale: { intervals: number[]; root?: number }, fret: number, maxSpan: number): Pos[] {
+function placed(scale: ScaleLike, fret: number, maxSpan: number): Pos[] {
   const ref = shapeOf(pathFrom({ intervals: scale.intervals, root: midiToPc((scale.root ?? ROOT_PC) - fret + 7) }, 7, maxSpan));
   const tries = [fret, fret + 12].map((f) => pathFrom(scale, f, maxSpan));
   const best = tries.find((p) => playable(p) && shapeOf(p) === ref) ?? tries.find(playable);
@@ -311,7 +324,7 @@ function placed(scale: { intervals: number[]; root?: number }, fret: number, max
  * position overlaps one already learned. Together they cover every scale note
  * on every string; above fret 12 the shapes repeat.
  */
-export function scalePositions(scale: { intervals: number[]; root?: number }): Pos[][] {
+export function scalePositions(scale: ScaleLike): Pos[][] {
   const home = sixStringPath(scale);
   const h = home[0].f;
   const above: Pos[][] = [];
@@ -338,7 +351,7 @@ export const fretRange = (path: Pos[]): [number, number] => [Math.min(...path.ma
  * G string of Drop C (as the booklet does for C, frets 5–17); keys whose tonic
  * sits elsewhere move to the middle C or F string, so the octave ends by fret 17.
  */
-export function oneStringOctave(scale: { intervals: number[]; root?: number }, string?: number): Pos[] {
+export function oneStringOctave(scale: ScaleLike, string?: number): Pos[] {
   const root = scale.root ?? ROOT_PC;
   const first = (s: number) => midiToPc(root - TUNING[s]);
   const s = string ?? [bs(1), bs(2), bs(3)].find((x) => first(x) >= 1 && first(x) <= 5) ?? bs(1);
@@ -356,7 +369,7 @@ export function oneStringOctave(scale: { intervals: number[]; root?: number }, s
  * sits no lower than two frets below the starting fret (keeps the hand in place).
  */
 export function twoStringGroup(
-  scale: { intervals: number[]; root?: number },
+  scale: ScaleLike,
   low: number,
   high: number,
   startFret: number,
@@ -370,8 +383,4 @@ export function twoStringGroup(
     low: lowNotes.map((n) => ({ s: low, f: n - TUNING[low] })),
     high: highNotes.map((n) => ({ s: high, f: n - TUNING[high] })),
   };
-}
-
-export function scaleNoteNames(scale: ScaleDef) {
-  return scale.intervals.map((i) => noteName(scale.root + i));
 }

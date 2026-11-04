@@ -3,7 +3,7 @@ import { droneOff, droneOn, playSequence } from '../audio/engine';
 import { shuffle, rngFrom } from '../data/rng';
 import type { HitLog } from '../logic/state';
 import { SCALES } from '../music/scales';
-import type { ScaleDef } from '../music/theory';
+import { upAndDown, type ScaleDef } from '../music/theory';
 
 const ROUNDS = 8;
 
@@ -31,7 +31,7 @@ export function EarQuiz({ droneVolume, onDone }: { droneVolume: number; onDone: 
   const play = (sc: ScaleDef = target) => {
     clearTimeout(busy.current);
     droneOn(36, droneVolume * 0.7);
-    const ms = playSequence([...sc.intervals, 12, ...[...sc.intervals].reverse()].map((i) => 48 + i), 132);
+    const ms = playSequence(upAndDown(sc.intervals).map((i) => 48 + i), 132);
     busy.current = window.setTimeout(droneOff, ms + 600);
   };
 

@@ -2,6 +2,7 @@ import type { BlockId, ModuleId } from '../data/types';
 import { DEFAULT_TUNING } from '../music/theory';
 
 export type Rating = 'clean' | 'ok' | 'rough';
+export const RATING_LABEL: Record<Rating, string> = { clean: 'sauber', ok: 'ging so', rough: 'unsauber' };
 export type DayFocus = 'standard' | 'control' | 'push';
 
 export interface Settings {
@@ -138,6 +139,8 @@ export function save(s: AppState) {
 export const todayKey = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+export const DAY_MS = 86400000;
+
 export function daysBetween(a: string, b: string) {
-  return Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
+  return Math.round((Date.parse(b) - Date.parse(a)) / DAY_MS);
 }

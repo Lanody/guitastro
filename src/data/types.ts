@@ -110,3 +110,4 @@ export interface Exercise {
 }
 
 export const seconds = (e: Exercise) => e.phases.reduce((a, p) => a + p.seconds, 0);
+export const totalSeconds = (exs: Exercise[]) => exs.reduce((a, e) => a + seconds(e), 0);

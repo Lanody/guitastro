@@ -1,4 +1,4 @@
-import { LevelBar } from '../components/Progress';
+import { AchievementTeaser, LevelBar } from '../components/Progress';
 import { streak } from '../logic/plan';
 import { levelInfo, nextAchievement, totalXp, type AchievementDef } from '../logic/progress';
 import type { AppState } from '../logic/state';
@@ -12,21 +12,22 @@ interface Props {
 }
 
 export function Done({ state, xp, fresh, levelBefore, onContinue }: Props) {
-  const l = levelInfo(totalXp(state));
+  const xpTotal = totalXp(state);
+  const l = levelInfo(xpTotal);
   const st = streak(state);
-  const next = nextAchievement(state);
+  const levelUp = l.level > levelBefore;
   return (
     <div className="done">
       <div className="done-hero">
         <span className="done-icon" aria-hidden>
-          {l.level > levelBefore ? '🎉' : fresh.length ? '🏅' : '🎸'}
+          {levelUp ? '🎉' : fresh.length ? '🏅' : '🎸'}
         </span>
-        <h1>{l.level > levelBefore ? `Level ${l.level}: ${l.title}!` : 'Einheit gespeichert'}</h1>
+        <h1>{levelUp ? `Level ${l.level}: ${l.title}!` : 'Einheit gespeichert'}</h1>
         {st > 1 && <p className="muted">{st} Tage in Folge – weiter so.</p>}
       </div>
 
       <section className="card">
-        <LevelBar xp={totalXp(state)} gained={xp} />
+        <LevelBar xp={xpTotal} gained={xp} />
       </section>
 
       {fresh.length > 0 && (
@@ -48,28 +49,7 @@ export function Done({ state, xp, fresh, levelBefore, onContinue }: Props) {
         </section>
       )}
 
-      {next && (
-        <section className="card teaser">
-          <span className="eyebrow">Als Nächstes in Reichweite</span>
-          <div className="teaser-row">
-            <span className="badge-icon" aria-hidden>
-              {next.def.icon}
-            </span>
-            <div>
-              <b>{next.def.title}</b>
-              <div className="small muted">{next.def.text}</div>
-              {next.goal > 1 && (
-                <span className="badge-track">
-                  <span style={{ width: `${(next.cur / next.goal) * 100}%` }} />
-                  <small>
-                    {next.cur}/{next.goal}
-                  </small>
-                </span>
-              )}
-            </div>
-          </div>
-        </section>
-      )}
+      <AchievementTeaser next={nextAchievement(state)} eyebrow="Als Nächstes in Reichweite" />
 
       <div className="done-actions">
         <button className="btn primary big wide" onClick={onContinue}>

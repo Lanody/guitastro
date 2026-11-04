@@ -3,11 +3,13 @@ import { chime, droneOff, droneOn, metronome, softCue } from '../audio/engine';
 import { ChordChart } from '../components/ChordChart';
 import { Fretboard } from '../components/Fretboard';
 import { HitTrainer } from '../components/HitTrainer';
+import { Seg } from '../components/Seg';
 import { Tab } from '../components/Tab';
 import { ListenWidget, RecallWidget } from '../components/Widgets';
-import { BLOCK_INFO, MODULE_INFO } from '../data/exercises';
+import { BLOCK_INFO, FOCUS_LABEL, MODULE_INFO } from '../data/exercises';
 import { riffEvents } from '../data/riffs';
-import { seconds, type Exercise, type Focus } from '../data/types';
+import { hash } from '../data/rng';
+import { seconds, totalSeconds, type Exercise } from '../data/types';
 import { FOCUS_INFO, bpmFor, type Plan } from '../logic/plan';
 import type { AppState, ExerciseResult, HitLog, Rating } from '../logic/state';
 import { DEFAULT_BEATS, fillBars } from '../music/meter';
@@ -21,15 +23,6 @@ interface Props {
   onFinish: (results: ExerciseResult[], seconds: number) => void;
   onExit: () => void;
 }
-
-export const FOCUS_LABEL: Record<Focus, string> = {
-  speed: 'Tempo',
-  accuracy: 'Treffsicherheit',
-  creativity: 'Kreativität',
-  scales: 'Skalen',
-  rhythm: 'Rhythmus',
-  chords: 'Akkorde',
-};
 
 const SUB_LABEL: Record<number, string> = { 2: 'Achtel', 3: 'Triolen', 4: 'Sechzehntel' };
 
@@ -92,7 +85,7 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
   const modIndex = sameBlock.indexOf(ex);
   const modCount = sameBlock.length;
   const chords = phase.chords;
-  const overall = (exercises.slice(0, idx).reduce((a, e) => a + seconds(e), 0) * 1000 + elapsed) / (exercises.reduce((a, e) => a + seconds(e), 0) * 1000);
+  const overall = (totalSeconds(exercises.slice(0, idx)) * 1000 + elapsed) / (totalSeconds(exercises) * 1000);
   const relaxing = settings.restCue && ex.tracksTempo && running && Math.floor(elapsed / 1000) % 60 >= 50;
 
   // Clock
@@ -193,12 +186,19 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
     setRunning((r) => !r);
   }, [stage, running, elapsed, ex.drone, droneAuto]);
 
+  const finishSession = useCallback(
+    (res: ExerciseResult[]) => {
+      setRunning(false);
+      setDrone(false);
+      onFinish(res, Math.round(practiced.current / 1000));
+    },
+    [onFinish],
+  );
+
   const goTo = useCallback(
     (next: number, res: ExerciseResult[]) => {
       if (next >= exercises.length) {
-        setRunning(false);
-        setDrone(false);
-        onFinish(res, Math.round(practiced.current / 1000));
+        finishSession(res);
         return;
       }
       setIdx(next);
@@ -212,7 +212,7 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
       if (auto && nextEx.drone && droneAuto) setDrone(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     },
-    [exercises, onFinish, settings.autoStart, droneAuto],
+    [exercises, finishSession, settings.autoStart, droneAuto],
   );
 
   const finishExercise = (rating?: Rating, skipped = false) => {
@@ -234,16 +234,13 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
   // Keyboard: space = start/pause, ↑/↓ = tempo, → = skip
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') return;
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
       if (e.code === 'Space') {
         e.preventDefault();
         toggleRun();
-      } else if (e.code === 'ArrowUp') {
+      } else if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
         e.preventDefault();
-        setBpm(bpm + (e.shiftKey ? 5 : 1));
-      } else if (e.code === 'ArrowDown') {
-        e.preventDefault();
-        setBpm(bpm - (e.shiftKey ? 5 : 1));
+        setBpm(bpm + (e.code === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 5 : 1));
       }
     };
     window.addEventListener('keydown', onKey);
@@ -255,11 +252,7 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
       onExit();
       return;
     }
-    if (confirm('Einheit beenden? Bisherige Ergebnisse werden gespeichert.')) {
-      setRunning(false);
-      setDrone(false);
-      onFinish(results, Math.round(practiced.current / 1000));
-    }
+    if (confirm('Einheit beenden? Bisherige Ergebnisse werden gespeichert.')) finishSession(results);
   };
 
   const mapVisible = ex.map && (!phase.hideMap || showMap);
@@ -379,7 +372,7 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
       {map && (
         <section className="card">
           {mapVisible ? (
-            <Fretboard {...map} caption={map.caption} />
+            <Fretboard {...map} />
           ) : (
             <button className="btn ghost wide" onClick={() => setShowMap(true)}>
               Griffbrett ist abgedeckt – nur bei Unsicherheit aufdecken
@@ -387,7 +380,6 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
           )}
         </section>
       )}
-
 
       <footer className="controls">
         <div className="tempo">
@@ -403,15 +395,7 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
           </button>
         </div>
         <div className="toggles">
-          {phase.alt && (
-            <div className="seg small">
-              {[phase.alt, phase.sub].map((v) => (
-                <button key={v} className={sub === v ? 'on' : ''} onClick={() => setSubOverride(v)}>
-                  {SUB_LABEL[v]}
-                </button>
-              ))}
-            </div>
-          )}
+          {phase.alt && <Seg value={sub} onChange={setSubOverride} options={[phase.alt, phase.sub].map((v) => ({ value: v, label: SUB_LABEL[v] }))} />}
           <button className={`btn small ${click && usesMetronome ? 'on' : 'ghost'}`} onClick={() => setClick(!click)} disabled={!usesMetronome}>
             Klick
           </button>
@@ -504,10 +488,8 @@ export function Session({ plan, state, onHit, onFinish, onExit }: Props) {
   );
 }
 
-/** Three strings for the "find root and colour tone" task, stable per day. */
+/** Three adjacent strings for the "find root and colour tone" task, stable per day. */
 function pickThree(date: string, key: string) {
-  let h = 0;
-  for (const c of date + key) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  const start = h % (STRINGS - 2); // three adjacent strings
+  const start = hash(date + key) % (STRINGS - 2);
   return [start, start + 1, start + 2];
 }

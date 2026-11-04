@@ -1,13 +1,12 @@
 import { useMemo } from 'react';
-import { GoalRing, LevelBar } from '../components/Progress';
-import { BLOCK_INFO } from '../data/exercises';
+import { AchievementTeaser, GoalRing, LevelBar } from '../components/Progress';
+import { BLOCK_INFO, FOCUS_LABEL } from '../data/exercises';
+import { totalSeconds } from '../data/types';
+import { FOCUS_INFO, STAGE_INFO, UNLOCK_DAYS, bpmFor, buildPlan, progressionText, scaleDay, streak, type Plan } from '../logic/plan';
 import { nextAchievement, sessionsThisWeek, totalXp } from '../logic/progress';
-import { seconds } from '../data/types';
-import { FOCUS_INFO, STAGE_INFO, UNLOCK_DAYS, bpmFor, buildPlan, progressionText, streak, type Plan } from '../logic/plan';
 import { daysBetween, todayKey, type AppState } from '../logic/state';
 import { SCALES, getScale } from '../music/scales';
 import { CURRENT } from '../music/theory';
-import { FOCUS_LABEL } from './Session';
 
 interface Props {
   state: AppState;
@@ -19,17 +18,15 @@ interface Props {
 export function Home({ state, onStart, onReroll, go }: Props) {
   const plan = useMemo(() => buildPlan(state), [state]);
   const scale = getScale(plan.scaleId, plan.root);
-  const total = Math.round(plan.exercises.reduce((a, e) => a + seconds(e), 0) / 60);
+  const total = Math.round(totalSeconds(plan.exercises) / 60);
   const today = todayKey();
   const playedToday = state.sessions.filter((s) => todayKey(new Date(s.date)) === today).length;
   const st = streak(state);
   const unlockIn = state.firstDay ? UNLOCK_DAYS - daysBetween(state.firstDay, today) : UNLOCK_DAYS;
-  const dayOfBlock = (state.scale.sessions % Math.max(1, state.settings.scaleSessions)) + 1;
+  const dayOfBlock = scaleDay(state).index + 1;
 
-  const greeting = (() => {
-    const h = new Date().getHours();
-    return h < 11 ? 'Guten Morgen' : h < 18 ? 'Hallo' : 'Guten Abend';
-  })();
+  const hour = new Date().getHours();
+  const greeting = hour < 11 ? 'Guten Morgen' : hour < 18 ? 'Hallo' : 'Guten Abend';
 
   return (
     <div className="home">
@@ -127,31 +124,7 @@ export function Home({ state, onStart, onReroll, go }: Props) {
         </p>
       </section>
 
-      {(() => {
-        const next = nextAchievement(state);
-        return next ? (
-          <button className="card teaser" onClick={() => go('history')}>
-            <span className="eyebrow">Nächster Erfolg</span>
-            <div className="teaser-row">
-              <span className="badge-icon" aria-hidden>
-                {next.def.icon}
-              </span>
-              <div>
-                <b>{next.def.title}</b>
-                <div className="small muted">{next.def.text}</div>
-                {next.goal > 1 && (
-                  <span className="badge-track">
-                    <span style={{ width: `${(next.cur / next.goal) * 100}%` }} />
-                    <small>
-                      {next.cur}/{next.goal}
-                    </small>
-                  </span>
-                )}
-              </div>
-            </div>
-          </button>
-        ) : null;
-      })()}
+      <AchievementTeaser next={nextAchievement(state)} eyebrow="Nächster Erfolg" onClick={() => go('history')} />
 
       {state.nextFocus && (
         <section className="card note-card">

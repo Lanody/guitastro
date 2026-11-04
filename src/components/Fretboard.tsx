@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { MapDot } from '../data/types';
 import { STRINGS, STRING_SHORT, TOP, allStrings, fretMidi, noteName } from '../music/theory';
 
@@ -15,8 +16,10 @@ interface Props {
 
 const MARKERS = [3, 5, 7, 9, 12, 15, 17];
 
-export function Fretboard({ from, to, dots, names = true, mark, onTap, caption }: Props) {
+// Memoised: the session screen re-renders with its timer, the map rarely changes.
+export const Fretboard = memo(function Fretboard({ from, to, dots, names = true, mark, onTap, caption }: Props) {
   const frets = to - from + 1;
+  const fretNums = Array.from({ length: frets }, (_, i) => from + i);
   const colW = 42;
   const rowH = 30;
   const left = 26;
@@ -30,7 +33,7 @@ export function Fretboard({ from, to, dots, names = true, mark, onTap, caption }
     <figure className="fretboard">
       {/* Up to ~9 frets scale to the screen; wider maps scroll sideways instead of shrinking. */}
       <svg viewBox={`0 0 ${w} ${h}`} style={{ minWidth: frets > 9 ? frets * 34 : undefined }} role="img" aria-label="Griffbrett">
-        {Array.from({ length: frets }, (_, i) => from + i).map((f) => (
+        {fretNums.map((f) => (
           <g key={f}>
             <text x={x(f)} y={13} className="fb-num">
               {f}
@@ -46,7 +49,7 @@ export function Fretboard({ from, to, dots, names = true, mark, onTap, caption }
             </text>
             <line x1={left} x2={w - 8} y1={y(s)} y2={y(s)} className="fb-string" style={{ strokeWidth: 0.8 + (TOP - s) * 0.25 }} />
             {onTap &&
-              Array.from({ length: frets }, (_, i) => from + i).map((f) => (
+              fretNums.map((f) => (
                 <rect
                   key={f}
                   x={left + (f - from) * colW}
@@ -81,4 +84,4 @@ export function Fretboard({ from, to, dots, names = true, mark, onTap, caption }
       {caption && <figcaption>{caption}</figcaption>}
     </figure>
   );
-}
+});

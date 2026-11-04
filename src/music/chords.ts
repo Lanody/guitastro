@@ -4,7 +4,7 @@
 // top three strings, which are tuned like G B e in every supported tuning, so
 // the voicings are searched, not hand-written.
 
-import { TOP, TUNING, fretMidi, midiToPc, noteName, type Pos, type ScaleDef } from './theory';
+import { MAJOR, TOP, TUNING, fretMidi, midiToPc, noteName, type Pos, type ScaleDef } from './theory';
 
 export type Quality = 'maj' | 'min' | 'dim' | 'aug';
 export type Voicing = 'power' | 'power-mix' | 'triad';
@@ -34,7 +34,6 @@ export interface ChordSlot {
   pcs: number[];
 }
 
-const MAJOR = [0, 2, 4, 5, 7, 9, 11];
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
 
 function quality(third: number, fifth: number): Quality {

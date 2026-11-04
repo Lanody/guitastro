@@ -3,8 +3,9 @@ import { openMic, pluck } from '../audio/engine';
 import { pick, rngFrom } from '../data/rng';
 import type { HitLog } from '../logic/state';
 import { detectPitch } from '../music/pitch';
-import { STRING_DAT, TUNING, freqToMidi, fretMidi, midiToPc, noteName, type ScaleDef } from '../music/theory';
+import { STRING_DAT, TUNING, freqToMidi, fretMidi, midiToPc, noteName, toneKind, type ScaleDef } from '../music/theory';
 import { Fretboard } from './Fretboard';
+import { Seg } from './Seg';
 
 interface Target {
   s: number;
@@ -42,10 +43,15 @@ function makeTargets(p: Props, seed: string): Target[] {
     const f = pick(rng, frets);
     const last = out[out.length - 1];
     if (last && last.s === s && last.pc === pc) continue;
-    const deg = midiToPc(pc - p.scale.root);
-    out.push({ s, f, pc, kind: deg === 0 ? 'root' : p.scale.color.includes(deg) ? 'color' : 'note' });
+    out.push({ s, f, pc, kind: toneKind(p.scale, pc) });
   }
   return out;
+}
+
+/** Targets hit at the first try and the average time to those hits (ms). */
+function summarize(results: { hit: boolean; ms: number }[]) {
+  const times = results.filter((r) => r.hit).map((r) => r.ms);
+  return { hits: times.length, avgMs: times.length ? times.reduce((a, b) => a + b, 0) / times.length : undefined };
 }
 
 export function HitTrainer(props: Props) {
@@ -79,27 +85,23 @@ export function HitTrainer(props: Props) {
   useEffect(() => {
     if (finished && !doneRef.current && results.length) {
       doneRef.current = true;
-      const hits = results.filter((r) => r.hit).length;
-      const times = results.filter((r) => r.hit).map((r) => r.ms);
-      onDone?.({
-        d: new Date().toISOString(),
-        mode,
-        hits,
-        total: results.length,
-        avgMs: times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : undefined,
-        scaleId: scale.id,
-      });
+      const { hits, avgMs } = summarize(results);
+      onDone?.({ d: new Date().toISOString(), mode, hits, total: results.length, avgMs: avgMs && Math.round(avgMs), scaleId: scale.id });
     }
   }, [finished, results, mode, onDone, scale.id]);
+
+  const flashFor = useCallback((tone: 'good' | 'bad') => {
+    setFlash(tone);
+    setTimeout(() => setFlash(null), 450);
+  }, []);
 
   const record = useCallback(
     (hit: boolean) => {
       setResults((r) => [...r, { hit, ms: performance.now() - shownAt.current }]);
-      setFlash(hit ? 'good' : 'bad');
-      setTimeout(() => setFlash(null), 450);
+      flashFor(hit ? 'good' : 'bad');
       setI((x) => x + 1);
     },
-    [],
+    [flashFor],
   );
 
   // Microphone loop: a note counts once it is held steadily for ~150 ms.
@@ -148,8 +150,7 @@ export function HitTrainer(props: Props) {
             record(!firstWrong.current);
           } else if (now - stable.since > 300 && !firstWrong.current) {
             firstWrong.current = true;
-            setFlash('bad');
-            setTimeout(() => setFlash(null), 450);
+            flashFor('bad');
           }
         }
       } else if (!r) {
@@ -169,17 +170,15 @@ export function HitTrainer(props: Props) {
     doneRef.current = false;
   };
 
-  const hits = results.filter((r) => r.hit).length;
+  const { hits, avgMs } = summarize(results);
 
   if (finished) {
-    const times = results.filter((r) => r.hit).map((r) => r.ms);
-    const avg = times.length ? times.reduce((a, b) => a + b, 0) / times.length / 1000 : 0;
     return (
       <div className="hit-trainer done">
         <div className="hit-score">
           <strong>{Math.round((hits / Math.max(1, results.length)) * 100)} %</strong>
           <span>
-            {hits} von {results.length} auf Anhieb getroffen{times.length ? ` · Ø ${avg.toFixed(1)} s` : ''}
+            {hits} von {results.length} auf Anhieb getroffen{avgMs !== undefined ? ` · Ø ${(avgMs / 1000).toFixed(1)} s` : ''}
           </span>
         </div>
         <button className="btn" onClick={restart}>
@@ -195,14 +194,19 @@ export function HitTrainer(props: Props) {
         <span className="muted">
           Ziel {i + 1}/{targets.length} · {hits} Treffer
         </span>
-        <div className="seg small">
-          <button className={mode === 'self' ? 'on' : ''} onClick={() => { stopMic(); setMode('self'); }}>
-            Selbst prüfen
-          </button>
-          <button className={mode === 'mic' ? 'on' : ''} onClick={() => mode !== 'mic' && startMic()}>
-            Mikrofon
-          </button>
-        </div>
+        <Seg
+          value={mode}
+          onChange={(m) => {
+            if (m === 'self') {
+              stopMic();
+              setMode('self');
+            } else if (mode !== 'mic') void startMic();
+          }}
+          options={[
+            { value: 'self', label: 'Selbst prüfen' },
+            { value: 'mic', label: 'Mikrofon' },
+          ]}
+        />
       </div>
       {micError && <p className="warn">{micError}</p>}
       {target && (

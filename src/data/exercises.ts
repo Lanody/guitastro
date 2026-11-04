@@ -23,7 +23,6 @@ import {
   TUNING,
   allStrings,
   bs,
-  degreeOf,
   isDrop,
   fretboardNotes,
   fretMidi,
@@ -35,13 +34,14 @@ import {
   scaleRun,
   sixStringPath,
   stringsWord,
+  toneKind,
   twoStringGroup,
   type Pos,
   type ScaleDef,
 } from '../music/theory';
 import type { RiffWeek } from './riffs';
 import { pick, shuffle, type Rng } from './rng';
-import type { BlockId, Exercise, FretMap, MapDot, Note, Phase, Step, Stroke } from './types';
+import type { BlockId, Exercise, Focus, FretMap, MapDot, Note, Phase, Step, Stroke } from './types';
 
 /** Day 1 of a scale block: learn it · middle days: deepen · last day: recall, transpose, use. */
 export type ScaleStage = 'learn' | 'deepen' | 'apply';
@@ -66,10 +66,11 @@ export interface BuildCtx {
 // ---------------------------------------------------------------------------
 
 const n = (s: number, f: number, t?: Note['t']): Note => (t ? { s, f, t } : { s, f });
+/** Plain picked notes along positions. */
+const notes = (ps: Pos[]): Note[] => ps.map((p) => n(p.s, p.f));
 /** A picked note with its pick direction. */
 const picked = (s: number, f: number, stroke: Stroke): Note => ({ s, f, stroke });
 const rests = (k: number): Step[] => Array.from({ length: k }, () => 'rest' as const);
-const holds = (k: number): Step[] => Array.from({ length: k }, () => 'hold' as const);
 
 /** Fret for finger digit with one finger per fret from `base`. */
 const permFrets = (perm: string, base: number) => perm.split('').map((d) => base + Number(d) - 1);
@@ -99,10 +100,7 @@ function choose<T>(ctx: BuildCtx, variants: T[]): { v: T; orig: boolean } {
 }
 
 function scaleMap(scale: ScaleDef, from = 5, to = 12, caption?: string): FretMap {
-  const dots: MapDot[] = fretboardNotes(scale, from, to).map((p) => {
-    const deg = degreeOf(scale, fretMidi(p.s, p.f));
-    return { ...p, kind: deg === 0 ? 'root' : scale.color.includes(deg) ? 'color' : 'note' };
-  });
+  const dots: MapDot[] = fretboardNotes(scale, from, to).map((p) => ({ ...p, kind: toneKind(scale, fretMidi(p.s, p.f)) }));
   return { from, to, dots, caption };
 }
 
@@ -144,15 +142,6 @@ export const CREATIVE_PROMPTS = [
   'Eine gute Idee behalten und nur den Rhythmus ändern – keine neuen Töne suchen.',
 ];
 
-export const RHYTHM_IDEAS = [
-  '„kurz – kurz – lang“',
-  '„lang – kurz – kurz“',
-  'punktiert: „lang – kurz“, „lang – kurz“',
-  'Auftakt: auf „und“ von 4 beginnen',
-  'Triolen: drei Töne pro Klick',
-  'Synkope: einen Ton über den nächsten Schlag hinweg halten',
-];
-
 const prompts = (ctx: BuildCtx, k: number) => shuffle(ctx.rng, CREATIVE_PROMPTS).slice(0, k);
 
 // ---------------------------------------------------------------------------
@@ -161,6 +150,12 @@ const prompts = (ctx: BuildCtx, k: number) => shuffle(ctx.rng, CREATIVE_PROMPTS)
 
 function pairName(lo: number, hi: number) {
   return `${STRING_SHORT[lo]}/${STRING_SHORT[hi]}`;
+}
+
+/** One finger per fret on two strings: up on the lower, up on the higher, then the same way back. */
+function twoStringPerm(lo: number, hi: number, up: number[]): Step[] {
+  const down = [...up].reverse();
+  return [...up.map((f) => n(lo, f)), ...up.map((f) => n(hi, f)), ...down.map((f) => n(hi, f)), ...down.map((f) => n(lo, f))];
 }
 
 function a1(ctx: BuildCtx): Exercise {
@@ -174,14 +169,6 @@ function a1(ctx: BuildCtx): Exercise {
     { perm: '1234', base: 5, lo: 3, hi: 4 },
   ]);
   const [lo, hi] = [bs(v.lo), bs(v.hi)];
-  const up = permFrets(v.perm, v.base);
-  const down = [...up].reverse();
-  const pattern: Step[] = [
-    ...up.map((f) => n(lo, f)),
-    ...up.map((f) => n(hi, f)),
-    ...down.map((f) => n(hi, f)),
-    ...down.map((f) => n(lo, f)),
-  ];
   return {
     key: 'A1',
     module: 'A',
@@ -190,7 +177,7 @@ function a1(ctx: BuildCtx): Exercise {
     focus: 'speed',
     intro: `Finger ${dash(v.perm)} aufwärts, rückwärts abwärts. Die doppelte Note am Wendepunkt wird zweimal angeschlagen. Ohne zusätzliche Pause wiederholen. Wechselschlag, unbenutzte Saiten dämpfen.`,
     variant: orig ? undefined : `Fingerfolge ${dash(v.perm)} · ab Bund ${v.base} · Saiten ${pairName(lo, hi)}`,
-    pattern,
+    pattern: twoStringPerm(lo, hi, permFrets(v.perm, v.base)),
     phases: [
       { label: 'Minute 1', seconds: 60, sub: 2, text: 'Achtel – 2 Noten pro Klick.' },
       { label: 'Minute 2', seconds: 60, sub: 4, alt: 2, text: 'Sechzehntel – nur wenn Minute 1 locker war. Sonst bei Achteln bleiben.' },
@@ -209,8 +196,6 @@ function a2(ctx: BuildCtx): Exercise {
     { perm: '1324', base: 5, lo: 3, hi: 4 },
   ]);
   const [lo, hi] = [bs(v.lo), bs(v.hi)];
-  const up = permFrets(v.perm, v.base);
-  const down = [...up].reverse();
   return {
     key: 'A2',
     module: 'A',
@@ -219,7 +204,7 @@ function a2(ctx: BuildCtx): Exercise {
     focus: 'accuracy',
     intro: `Fingerfolge ${dash(v.perm)}, zurück ${dash([...v.perm].reverse().join(''))}. Finger nahe an der Saite halten, aber nicht künstlich auf dem Griffbrett festhalten.`,
     variant: orig ? undefined : `Fingerfolge ${dash(v.perm)} · ab Bund ${v.base} · Saiten ${pairName(lo, hi)}`,
-    pattern: [...up.map((f) => n(lo, f)), ...up.map((f) => n(hi, f)), ...down.map((f) => n(hi, f)), ...down.map((f) => n(lo, f))],
+    pattern: twoStringPerm(lo, hi, permFrets(v.perm, v.base)),
     phases: [
       { label: 'Minute 1', seconds: 60, sub: 2, text: 'Mit Achteln beginnen.' },
       { label: 'Minute 2', seconds: 60, sub: 4, alt: 2, text: 'Erst wenn Achtel sauber sind: Sechzehntel.' },
@@ -229,13 +214,8 @@ function a2(ctx: BuildCtx): Exercise {
 }
 
 function runPattern(g: { low: Pos[]; high: Pos[] }, pause = 4): Step[] {
-  return [
-    ...g.low.map((p) => n(p.s, p.f)),
-    ...g.high.map((p) => n(p.s, p.f)),
-    ...[...g.high].reverse().map((p) => n(p.s, p.f)),
-    ...[...g.low].reverse().map((p) => n(p.s, p.f)),
-    ...rests(pause),
-  ];
+  const way = notes([...g.low, ...g.high]);
+  return [...way, ...[...way].reverse(), ...rests(pause)];
 }
 
 function a3(ctx: BuildCtx): Exercise {
@@ -377,70 +357,6 @@ function a6(ctx: BuildCtx): Exercise {
   };
 }
 
-/** Booklet phrases in Drop C (strings 0 = low C … 5 = high d), all ending on C. */
-export const PHRASES: { notes: [number, number][]; label: string }[] = [
-  { notes: [[5, 8], [5, 6], [5, 5], [4, 8], [5, 10]], label: 'B♭–A♭–G–F → C' },
-  { notes: [[4, 6], [4, 8], [5, 5], [5, 6], [5, 10]], label: 'E♭–F–G–A♭ → C' },
-  { notes: [[5, 5], [4, 8], [4, 6], [4, 5], [3, 7]], label: 'G–F–E♭–D → C' },
-  { notes: [[3, 5], [3, 7], [3, 9], [4, 6], [3, 7]], label: 'B♭–C–D–E♭ → C' },
-  { notes: [[2, 8], [2, 7], [2, 5], [1, 8], [1, 5]], label: 'A♭–G–F–E♭ → C (tief)' },
-  { notes: [[5, 6], [5, 8], [5, 10], [5, 8], [5, 10]], label: 'A♭–B♭–C–B♭ → C' },
-];
-
-function a7(ctx: BuildCtx): Exercise {
-  const { v, orig } = choose(ctx, PHRASES);
-  const [p1, p2, p3, p4, target] = v.notes.map(([s, f]) => n(bs(s), f));
-  const label = `${[p1, p2, p3, p4].map(noteOf).join('–')} → ${noteOf(target)}${v.label.endsWith('(tief)') ? ' (tief)' : ''}`;
-  const base: Step[] = [p1, p2, p3, p4, target, ...holds(3), ...rests(8)];
-  const vib: Step[] = [p1, p2, p3, p4, { ...target, t: '~' }, ...holds(3), ...rests(8)];
-  return {
-    key: 'A7',
-    module: 'A',
-    num: 7,
-    title: 'Solo-Phrase',
-    focus: 'creativity',
-    intro: `Die ersten vier Töne als Achtel (1 und 2 und), der Zielton ${homeName()} als halbe Note auf 3. Nach der Phrase einen ganzen Takt Pause.`,
-    variant: orig ? undefined : label,
-    phases: [
-      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Zielton ruhig halten.', pattern: base },
-      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Leichtes Vibrato auf dem Zielton ergänzen.', pattern: vib },
-    ],
-    tracksTempo: false,
-  };
-}
-
-function a8(ctx: BuildCtx): Exercise {
-  const minor = homeMinor();
-  const { v, orig } = choose(ctx, [
-    { pool: [[5, 5], [5, 6], [5, 8], [5, 10], [4, 5], [4, 6], [4, 8]] as [number, number][], label: `${pairName(bs(4), bs(5))}, Bund 5–10`, scale: minor },
-    { pool: [[4, 6], [4, 8], [4, 10], [3, 5], [3, 7], [3, 9]] as [number, number][], label: `${pairName(bs(3), bs(4))}, Bund 5–10`, scale: minor },
-    { pool: null, label: `${ctx.scale.name} auf ${pairName(bs(4), bs(5))}`, scale: ctx.scale },
-  ]);
-  const pool: Pos[] = v.pool
-    ? v.pool.map(([s, f]) => ({ s: bs(s), f }))
-    : fretboardNotes(v.scale, 5, 10).filter((p) => p.s >= TOP - 1);
-  const dots: MapDot[] = pool.map((p) => {
-    const deg = degreeOf(v.scale, fretMidi(p.s, p.f));
-    return { ...p, kind: deg === 0 ? 'root' : v.scale !== minor && v.scale.color.includes(deg) ? 'color' : 'note' };
-  });
-  return {
-    key: 'A8',
-    module: 'A',
-    num: 8,
-    title: 'Mini-Solo',
-    focus: 'creativity',
-    intro: `Tonvorrat, nicht als Akkord spielen. Kurze Motive aus 3–6 Tönen, nach jedem Motiv mindestens zwei Klicks Luft. Jede zweite Phrase auf ${noteName(v.scale.root)} beenden. Lieber den Rhythmus einer guten Idee verändern, statt ständig neue Noten zu suchen.`,
-    variant: orig ? undefined : v.label,
-    map: { from: 4, to: 11, dots, caption: `Gold = ${noteName(v.scale.root)} (Zielton)` },
-    phases: [{ label: 'Minute 1', seconds: 60, sub: 2, text: 'Frei improvisieren mit der heutigen Aufgabe.' }],
-    tracksTempo: false,
-    drone: true,
-    prompts: prompts(ctx, 1),
-    scaleId: v.scale.id,
-    root: v.scale.root,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // MODUL B · Alle Saiten
 // ---------------------------------------------------------------------------
@@ -524,45 +440,13 @@ function minorShape(ctx: BuildCtx) {
   return { path, scale, label: orig ? undefined : `Griffbild ab tiefem ${noteName(HOME + v)} (Bund ${fret})` };
 }
 
-function pathTable(path: Pos[]) {
-  return allStrings()
-    .map((s) => {
-      const fs = path.filter((p) => p.s === s).map((p) => p.f);
-      return `${STRING_SHORT[s]} ${fs.join('–')} (${fingering(fs)})`;
-    })
-    .join(' · ');
-}
-
-function b3(_ctx: BuildCtx, shape: ReturnType<typeof minorShape>): Exercise {
-  const { up, down } = pathUpDown(shape.path);
-  const both = padBar([...up, ...down.slice(1)], 2);
-  return {
-    key: 'B3',
-    module: 'B',
-    num: 3,
-    title: shape.scale.name,
-    focus: 'scales',
-    intro: `Ein Griffbild über alle ${STRINGS} Saiten. ${homeName()} als Zielton bewusst hören. Die Hand für die weitere Lage mitnehmen, nicht festklemmen. ${pathTable(shape.path)}`,
-    variant: shape.label,
-    map: scaleMap(shape.scale, 3, 14, `Gold = ${homeName()} · Türkis = ${noteName(HOME + 8)} (♭6)`),
-    phases: [
-      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Aufwärts, oben halten und neu beginnen.', pattern: padBar([...up, 'hold', 'hold'], 2) },
-      { label: 'Minute 2', seconds: 60, sub: 2, text: 'Abwärts.', pattern: padBar([...down, 'hold', 'hold'], 2) },
-      { label: 'Minute 3', seconds: 60, sub: 2, text: 'Beide Richtungen ohne doppelten Wendeton verbinden.', pattern: both },
-    ],
-    tracksTempo: true,
-    scaleId: shape.scale.id,
-    root: shape.scale.root,
-  };
-}
-
 function b4(_ctx: BuildCtx, shape: ReturnType<typeof minorShape>): Exercise {
   const { up, down } = pathUpDown(shape.path, 'legato');
   return {
     key: 'B4',
     module: 'B',
     num: 4,
-    title: 'Dasselbe als Legato',
+    title: 'Moll-Griffbild als Legato',
     focus: 'accuracy',
     intro: 'Nur die erste Note jeder Saite anschlagen. Gleichmäßige Achtel, kein hastiges Nachziehen der beiden Legato-Töne.',
     variant: shape.label,
@@ -620,31 +504,6 @@ function b5(_ctx: BuildCtx, shape: ReturnType<typeof minorShape>): Exercise {
   };
 }
 
-function b6(ctx: BuildCtx, shape: ReturnType<typeof minorShape>): Exercise {
-  const isHome = (p: Pos) => midiToPc(fretMidi(p.s, p.f)) === HOME;
-  const targets = shape.path.filter(isHome);
-  const dots: MapDot[] = shape.path.map((p) => ({ ...p, kind: isHome(p) ? 'target' : 'note' }));
-  const rhythm = ctx.vary ? pick(ctx.rng, RHYTHM_IDEAS) : RHYTHM_IDEAS[0];
-  return {
-    key: 'B6',
-    module: 'B',
-    num: 6,
-    title: 'Mini-Solo über drei Register',
-    focus: 'creativity',
-    intro: `Nur Töne aus dem Griffbild verwenden. Den Zielton halten, optional leichtes Vibrato. Hier nicht die Geschwindigkeit messen, sondern Phrasen mit Anfang und Ende spielen. Zieltöne ${homeName()}: ${targets.map((t) => `${STRING_SHORT[t.s]} ${t.f}`).join(', ')}.`,
-    variant: shape.label,
-    map: { from: Math.min(...shape.path.map((p) => p.f)) - 1, to: Math.max(...shape.path.map((p) => p.f)) + 1, dots, caption: `Gold = ${homeName()}-Zieltöne` },
-    phases: [
-      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Je eine Phrase mit 4–6 Tönen auf dem tiefen, mittleren und hohen Saitenpaar. Nach jeder Phrase zwei Klicks Pause.' },
-      { label: 'Minute 2', seconds: 60, sub: 2, text: `Rhythmus ${rhythm} tief, mittig und hoch wiederverwenden. Andere Töne, erkennbar dasselbe Motiv.` },
-      { label: 'Minute 3', seconds: 60, sub: 2, text: `Phrasen abwechselnd auf den ${homeName()}-Zieltönen beenden.` },
-    ],
-    tracksTempo: false,
-    drone: true,
-    prompts: ctx.vary ? prompts(ctx, 1) : undefined,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // SKALA · ein Block über mehrere Tage; jeder neue Block bringt eine neue Skala
 // mit neuem Grundton. Tag 1 lernen, mittlere Tage vertiefen, letzter Tag
@@ -657,7 +516,7 @@ const positionText = (p: Pos[]) => (p[0].f === 0 ? 'in der offenen Lage' : `ab B
 /** Groups of `size` consecutive notes along a path: 1-2-3, 2-3-4, … */
 function sequence(path: Pos[], size: number): Step[] {
   const out: Step[] = [];
-  for (let i = 0; i + size <= path.length; i++) out.push(...path.slice(i, i + size).map((p) => n(p.s, p.f)));
+  for (let i = 0; i + size <= path.length; i++) out.push(...notes(path.slice(i, i + size)));
   return out;
 }
 
@@ -690,7 +549,7 @@ function scaleFind(sc: ScaleDef, map: FretMap, path: Pos[]): Exercise {
   const r = noteName(sc.root);
   const { up, down } = pathUpDown(path);
   const octave = oneStringOctave(sc);
-  const oUp = octave.map((p) => n(p.s, p.f));
+  const oUp = notes(octave);
   return {
     key: 'C2',
     module: 'C',
@@ -876,15 +735,6 @@ export function scaleBlock(ctx: BuildCtx): Exercise[] {
   }
 }
 
-export function moduleA(ctx: BuildCtx): Exercise[] {
-  return [a1(ctx), a2(ctx), a3(ctx), a4(ctx), a5(ctx), a6(ctx), a7(ctx), a8(ctx)];
-}
-
-export function moduleB(ctx: BuildCtx): Exercise[] {
-  const shape = minorShape(ctx);
-  return [b1(ctx), b2(ctx), b3(ctx, shape), b4(ctx, shape), b5(ctx, shape), b6(ctx, shape)];
-}
-
 // ---------------------------------------------------------------------------
 // MODUL D · Polyrhythmus (nicht aus dem Heft)
 // The click keeps the beat; the guitar plays the other layer. "Hören" phases
@@ -1032,27 +882,6 @@ function d4(ctx: BuildCtx): Exercise {
     ],
     tracksTempo: true,
   };
-}
-
-function d5(ctx: BuildCtx): Exercise {
-  const task = ctx.vary
-    ? pick(ctx.rng, ['Dreiergruppe aus zwei Tönen', 'Fünfergruppe mit Pause am Ende', 'Gruppe 3 + 3 + 2 (Tresillo)', 'Siebenergruppe'])
-    : 'Dreiergruppe aus zwei Tönen';
-  return {
-    key: 'D5',
-    module: 'D',
-    num: 5,
-    title: 'Eigenes Polyrhythmus-Riff',
-    focus: 'creativity',
-    intro: 'Ein eigenes Riff auf den tiefen Saiten, das sich gegen den 4/4-Klick verschiebt. Die Gruppe beibehalten, nur Töne und Betonungen verändern. Zählen, wann es wieder auf der Eins landet.',
-    phases: [{ label: 'Minute 1', seconds: 60, sub: 4, text: 'Frei spielen mit der heutigen Aufgabe.' }],
-    tracksTempo: false,
-    prompts: [`Heute: ${task}.`],
-  };
-}
-
-export function moduleD(ctx: BuildCtx): Exercise[] {
-  return [d1(), d2(), d3(), d4(ctx), d5(ctx)];
 }
 
 // ---------------------------------------------------------------------------
@@ -1511,9 +1340,18 @@ function i1(ctx: BuildCtx): Exercise {
   };
 }
 
+export const FOCUS_LABEL: Record<Focus, string> = {
+  speed: 'Tempo',
+  accuracy: 'Treffsicherheit',
+  creativity: 'Kreativität',
+  scales: 'Skalen',
+  rhythm: 'Rhythmus',
+  chords: 'Akkorde',
+};
+
 export const MODULE_INFO = {
-  A: { name: 'Zwei hohe Saiten', short: 'Kontrolle, Legato, Bursts, Phrasen' },
-  B: { name: 'Alle Saiten', short: 'Saitenwechsel, Sprünge, Moll-Griffbild' },
+  A: { name: 'Zwei hohe Saiten', short: 'Synchronisation, Legato, Saitensprünge, Bursts' },
+  B: { name: 'Alle Saiten', short: 'Saitenwechsel, Sprünge, Legato, Bursts' },
   C: { name: 'Skalen verstehen', short: 'Hören, finden, benutzen' },
   D: { name: 'Polyrhythmus', short: '3:2, 2:3, 4:3, 3:4, Gruppen über 4/4' },
   E: { name: 'Zusatz-Technik', short: 'Tremolo, Lagenwechsel, Oktaven, Griffbrett, Legato, Sweep-Picking' },

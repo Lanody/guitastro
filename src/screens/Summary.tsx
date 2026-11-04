@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { applyRating, type Plan } from '../logic/plan';
-import type { AppState, ExerciseResult } from '../logic/state';
+import { RATING_LABEL, type AppState, type ExerciseResult } from '../logic/state';
 import { getScale } from '../music/scales';
 import { noteName } from '../music/theory';
 
@@ -19,8 +19,6 @@ const CHECKS = [
 ];
 
 type Row = ExerciseResult & { nextBpm?: number };
-
-const RATING: Record<string, string> = { clean: 'sauber', ok: 'ging so', rough: 'unsauber' };
 
 export function Summary({ plan, state, results, seconds, onSave }: Props) {
   const [checks, setChecks] = useState<[boolean, boolean, boolean]>([false, false, false]);
@@ -72,8 +70,8 @@ export function Summary({ plan, state, results, seconds, onSave }: Props) {
                   <span className="muted">übersprungen</span>
                 ) : r.bpm !== undefined ? (
                   <>
-                    {r.bpm} BPM{r.rating && <span className={`rating ${r.rating}`}> · {RATING[r.rating]}</span>}
-                    {(r.change ?? 0) !== 0 && <span className={(r.change ?? 0) > 0 ? 'up' : 'down'}> {(r.change ?? 0) > 0 ? '+' : ''}{r.change}</span>}
+                    {r.bpm} BPM{r.rating && <span className={`rating ${r.rating}`}> · {RATING_LABEL[r.rating]}</span>}
+                    {!!r.change && <span className={r.change > 0 ? 'up' : 'down'}> {r.change > 0 ? '+' : ''}{r.change}</span>}
                   </>
                 ) : (
                   <span className="muted">✓</span>
@@ -92,11 +90,7 @@ export function Summary({ plan, state, results, seconds, onSave }: Props) {
             <input
               type="checkbox"
               checked={checks[i]}
-              onChange={(e) => {
-                const n = [...checks] as [boolean, boolean, boolean];
-                n[i] = e.target.checked;
-                setChecks(n);
-              }}
+              onChange={(e) => setChecks((c) => c.map((x, j) => (j === i ? e.target.checked : x)) as typeof c)}
             />
             <span>{c}</span>
           </label>

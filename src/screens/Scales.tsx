@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { droneOff, droneOn, playSequence, pluck } from '../audio/engine';
 import { EarQuiz } from '../components/EarQuiz';
 import { Fretboard } from '../components/Fretboard';
@@ -13,7 +13,6 @@ import {
   STRING_DAT,
   STRING_LONG,
   TOP,
-  degreeOf,
   fretMidi,
   fretRange,
   fretboardNotes,
@@ -22,6 +21,8 @@ import {
   oneStringOctave,
   scalePositions,
   sixStringPath,
+  toneKind,
+  upAndDown,
   type Pos,
   type ScaleDef,
 } from '../music/theory';
@@ -36,11 +37,7 @@ interface Props {
 /** Scale notes in a fret window; with `only`, notes outside that position are dimmed. */
 function dots(sc: ScaleDef, from = 0, to = 15, only?: Pos[]): MapDot[] {
   const inPos = only && new Set(only.map((p) => `${p.s}:${p.f}`));
-  return fretboardNotes(sc, from, to).map((p) => {
-    const deg = degreeOf(sc, fretMidi(p.s, p.f));
-    if (inPos && !inPos.has(`${p.s}:${p.f}`)) return { ...p, kind: 'dim' };
-    return { ...p, kind: deg === 0 ? 'root' : sc.color.includes(deg) ? 'color' : 'note' };
-  });
+  return fretboardNotes(sc, from, to).map((p) => ({ ...p, kind: inPos && !inPos.has(`${p.s}:${p.f}`) ? 'dim' : toneKind(sc, fretMidi(p.s, p.f)) }));
 }
 
 export function Scales({ state, onChoose, onEar }: Props) {
@@ -56,11 +53,12 @@ export function Scales({ state, onChoose, onEar }: Props) {
     if (drone) droneOn(lowRoot(root), state.settings.droneVolume);
     else droneOff();
   }, [drone, root, state.settings.droneVolume]);
-  const sc = getScale(sel, root);
+  // Positions are computed for the active tuning, so it belongs to the key too.
+  const sc = useMemo(() => getScale(sel, root), [sel, root, state.settings.tuning]);
   const r = noteName(root);
   const current = state.scale.id === sc.id && (state.scale.root ?? 0) === root;
-  const path = sixStringPath(sc);
-  const positions = scalePositions(sc);
+  const path = useMemo(() => sixStringPath(sc), [sc]);
+  const positions = useMemo(() => scalePositions(sc), [sc]);
   const shownLage = lage < positions.length ? lage : -1;
   // All positions: the whole neck. One position: a window around it, neighbouring notes dimmed.
   const win: [number, number] = (() => {
@@ -76,13 +74,16 @@ export function Scales({ state, onChoose, onEar }: Props) {
     <div className="scales">
       <h1>Skalen</h1>
       <div className="scale-tabs">
-        {SCALES.map((s) => (
-          <button key={s.id} className={`chip${s.id === sel ? ' on' : ''}`} onClick={() => setSel(s.id)}>
-            {s.name.replace('C-', '')}
-            {s.id === state.scale.id && ' ●'}
-            {scaleProgress(state, s.id).stars > 0 && <span className="chip-stars"> {'★'.repeat(scaleProgress(state, s.id).stars)}</span>}
-          </button>
-        ))}
+        {SCALES.map((s) => {
+          const { stars } = scaleProgress(state, s.id);
+          return (
+            <button key={s.id} className={`chip${s.id === sel ? ' on' : ''}`} onClick={() => setSel(s.id)}>
+              {s.name.replace('C-', '')}
+              {s.id === state.scale.id && ' ●'}
+              {stars > 0 && <span className="chip-stars"> {'★'.repeat(stars)}</span>}
+            </button>
+          );
+        })}
       </div>
 
       <div className="scale-tabs root-tabs" aria-label="Grundton">
@@ -116,7 +117,7 @@ export function Scales({ state, onChoose, onEar }: Props) {
           </button>
         )}
         <div className="row wrap">
-          <button className="btn ghost small" onClick={() => playSequence([...sc.intervals, 12, ...[...sc.intervals].reverse()].map((i) => base + i), 140)}>
+          <button className="btn ghost small" onClick={() => playSequence(upAndDown(sc.intervals).map((i) => base + i), 140)}>
             ▶ Skala
           </button>
           <button className="btn ghost small" onClick={() => playSequence(sc.motif.map(([s, f]) => fretMidi(s, f)), 90)}>

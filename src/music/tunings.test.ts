@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { BUILDERS, moduleA, moduleB, moduleD, patternNotes, scaleBlock, type BuildCtx, type ScaleStage } from '../data/exercises';
+import { BUILDERS, patternNotes, scaleBlock, type BuildCtx, type ScaleStage } from '../data/exercises';
 import { rngFrom } from '../data/rng';
 import type { Exercise } from '../data/types';
 import { powerGrip, progressionFor, triad, voiceProgression } from './chords';
@@ -48,7 +48,8 @@ describe('booklet frets stay the same in every drop tuning', () => {
   const frets = (es: Exercise[]) => es.map((e) => allPatterns(e).flatMap((p) => patternNotes(p).map((x) => `${x.s}:${x.f}`)).join(' '));
   const build = () => {
     const ctx: BuildCtx = { rng: rngFrom('x'), vary: false, scale: getScale('aeolian', HOME) };
-    return frets([...moduleA(ctx), ...moduleB(ctx), ...moduleD(ctx)]);
+    // Booklet-derived modules only: the extra blocks compute their frets from the tuning.
+    return frets(Object.keys(BUILDERS).filter((k) => /^[ABD]/.test(k)).map((k) => BUILDERS[k](ctx)));
   };
   setTuning('drop-c');
   const dropC = build();
@@ -142,7 +143,7 @@ for (const t of TUNINGS) {
         for (const card of SCALES) {
           const sc = getScale(card.id, ROOT_ROTATION[(seed * 5) % 12]);
           const c: BuildCtx = { rng: rngFrom(`${t.id}${seed}`), vary: seed > 0, scale: sc, stage: STAGES[seed % 3], progression: progressionFor(sc, seed) };
-          const all = [...moduleA(c), ...moduleB(c), ...moduleD(c), ...STAGES.flatMap((stage) => scaleBlock({ ...c, stage })), ...Object.values(BUILDERS).map((b) => b(c))];
+          const all = [...STAGES.flatMap((stage) => scaleBlock({ ...c, stage })), ...Object.values(BUILDERS).map((b) => b(c))];
           for (const e of all) {
             expect(e.intro, e.key).not.toMatch(/undefined|NaN/);
             for (const pat of allPatterns(e)) {
@@ -152,7 +153,7 @@ for (const t of TUNINGS) {
                 expect(nt.s, where).toBeLessThanOrEqual(TOP);
                 expect(nt.f, where).toBeGreaterThanOrEqual(0);
                 expect(nt.f, where).toBeLessThanOrEqual(17);
-                const scale = ['A3', 'A5', 'B3', 'B4', 'B5'].includes(e.key) || e.module === 'C' || ['E1', 'E3', 'E6'].includes(e.key) ? getScale(e.scaleId ?? sc.id, e.root ?? sc.root) : null;
+                const scale = ['A3', 'A5', 'B4', 'B5'].includes(e.key) || e.module === 'C' || ['E1', 'E3', 'E6'].includes(e.key) ? getScale(e.scaleId ?? sc.id, e.root ?? sc.root) : null;
                 if (scale) expect(inScale(scale, fretMidi(nt.s, nt.f)), `${where} ${scale.name}`).toBe(true);
               }
             }

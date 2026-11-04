@@ -1,7 +1,4 @@
-import { inKey, noteName, type ScaleCard, type ScaleDef } from './theory';
-
-const MINOR = [0, 2, 3, 5, 7, 8, 10];
-const MAJOR = [0, 2, 4, 5, 7, 9, 11];
+import { MAJOR, NAT_MINOR as MINOR, inKey, noteName, type ScaleCard, type ScaleDef } from './theory';
 
 // The first three minor colours come straight from the booklet (Modul C).
 // The rest extend the repertoire in the same format. Cards are written in C;

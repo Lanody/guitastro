@@ -2,7 +2,7 @@
 // so nothing can drift out of sync. Only unlock dates are stored.
 
 import { SCALES, SCALE_ROTATION } from '../music/scales';
-import { todayKey, type AppState, type SessionLog } from './state';
+import { DAY_MS, todayKey, type AppState, type HitLog, type SessionLog, type TempoState } from './state';
 
 // ---------------------------------------------------------------------------
 // XP & levels
@@ -69,20 +69,24 @@ export function sessionsThisWeek(state: AppState, now = new Date()) {
   return state.sessions.filter((s) => Date.parse(s.date) >= start).length;
 }
 
-/** Best streak ever (consecutive days with a session). */
-export function bestStreak(state: AppState) {
-  const days = [...new Set(state.sessions.map((s) => todayKey(new Date(s.date))))].sort();
+/** Days with a session, ascending, as noon timestamps (so DST shifts round away). */
+function practiceDays(state: AppState) {
+  return [...new Set(state.sessions.map((s) => todayKey(new Date(s.date))))].sort().map((d) => Date.parse(d + 'T12:00:00'));
+}
+
+/** Longest run of sorted timestamps that are exactly `step` apart (rounded, for DST). */
+function longestRun(times: number[], step: number) {
   let best = 0;
   let cur = 0;
-  let prev: number | null = null;
-  for (const d of days) {
-    const t = Date.parse(d + 'T12:00:00');
-    cur = prev !== null && Math.round((t - prev) / 86400000) === 1 ? cur + 1 : 1;
+  times.forEach((t, i) => {
+    cur = i > 0 && Math.round((t - times[i - 1]) / step) === 1 ? cur + 1 : 1;
     best = Math.max(best, cur);
-    prev = t;
-  }
+  });
   return best;
 }
+
+/** Best streak ever (consecutive days with a session). */
+export const bestStreak = (state: AppState) => longestRun(practiceDays(state), DAY_MS);
 
 /** Minutes practised per calendar day. */
 export function minutesByDay(state: AppState) {
@@ -94,17 +98,20 @@ export function minutesByDay(state: AppState) {
   return m;
 }
 
+/** BPM an exercise gained since its first rating. */
+export const tempoGain = (t: TempoState) => t.bpm - (t.history[0]?.bpm ?? t.bpm);
+
 /** Sum of BPM gained over all tracked exercises since their first rating. */
 export function bpmGain(state: AppState) {
-  return Object.values(state.tempo).reduce((a, t) => a + Math.max(0, t.bpm - (t.history[0]?.bpm ?? t.bpm)), 0);
+  return Object.values(state.tempo).reduce((a, t) => a + Math.max(0, tempoGain(t)), 0);
 }
 
 export function maxBpmGain(state: AppState) {
-  return Object.values(state.tempo).reduce((a, t) => Math.max(a, t.bpm - (t.history[0]?.bpm ?? t.bpm)), 0);
+  return Object.values(state.tempo).reduce((a, t) => Math.max(a, tempoGain(t)), 0);
 }
 
-export function hitTotals(state: AppState, modes: string[]) {
-  const hs = state.hits.filter((h) => modes.includes(h.mode));
+export function hitTotals(logs: HitLog[], modes: HitLog['mode'][]) {
+  const hs = logs.filter((h) => modes.includes(h.mode));
   const hits = hs.reduce((a, h) => a + h.hits, 0);
   const total = hs.reduce((a, h) => a + h.total, 0);
   return { hits, total, rate: total ? hits / total : null };
@@ -121,11 +128,12 @@ export interface ScaleProgress {
 
 /** Different tonics the scale block was played in. */
 export function keysPlayed(state: AppState) {
-  return new Set(state.sessions.filter((s) => s.blocks && s.results.some((r) => r.block === 'scale' && !r.skipped)).map((s) => s.root ?? 0)).size;
+  return new Set(state.sessions.filter((s) => s.blocks && playedBlock(s, 'scale')).map((s) => s.root ?? 0)).size;
 }
 
-const chordSessions = (s: AppState) => s.sessions.filter((x) => x.results.some((r) => r.block === 'chords' && !r.skipped)).length;
-const fullPlan = (x: SessionLog) => !!x.blocks?.every((b) => x.results.some((r) => r.block === b && !r.skipped));
+const playedBlock = (x: SessionLog, block: string) => x.results.some((r) => r.block === block && !r.skipped);
+const chordSessions = (s: AppState) => s.sessions.filter((x) => playedBlock(x, 'chords')).length;
+const fullPlan = (x: SessionLog) => !!x.blocks?.every((b) => playedBlock(x, b));
 
 export function scaleProgress(state: AppState, id: string): ScaleProgress {
   const sessions = state.sessions.filter((s) => s.scaleId === id && s.modules.includes('C') && s.results.some((r) => r.module === 'C' && !r.skipped)).length;
@@ -155,11 +163,13 @@ export interface AchievementDef {
 const count = (n: number, goal: number): [number, number] => [Math.min(n, goal), goal];
 const flag = (b: boolean): [number, number] => [b ? 1 : 0, 1];
 const fullChecks = (s: AppState) => s.sessions.filter((x) => x.checks.every(Boolean)).length;
-const totalMinutes = (s: AppState) => Math.round(s.sessions.reduce((a, x) => a + x.seconds, 0) / 60);
+export const totalMinutes = (sessions: SessionLog[]) => Math.round(sessions.reduce((a, x) => a + x.seconds, 0) / 60);
 const hourOf = (x: SessionLog) => new Date(x.date).getHours();
-const goodRound = (s: AppState, modes: string[], minTotal: number, rate: number) =>
+const goodRound = (s: AppState, modes: HitLog['mode'][], minTotal: number, rate: number) =>
   s.hits.some((h) => modes.includes(h.mode) && h.total >= minTotal && h.hits / h.total >= rate);
-const scalesPlayed = (s: AppState) => new Set(s.sessions.filter((x) => x.modules.includes('C') && x.scaleId).map((x) => x.scaleId)).size;
+/** Scales played in the scale block (Modul C). */
+const playedScales = (s: AppState) => new Set(s.sessions.filter((x) => x.modules.includes('C') && x.scaleId).map((x) => x.scaleId!));
+const countPlayed = (s: AppState, ids: string[]) => ids.filter((id) => playedScales(s).has(id)).length;
 const scalesRecalled = (s: AppState) => new Set(s.hits.filter((h) => h.mode === 'recall' && h.hits === h.total).map((h) => h.scaleId)).size;
 
 export const ACHIEVEMENTS: AchievementDef[] = [
@@ -179,8 +189,8 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'sessions10', group: 'Dranbleiben', icon: '📅', title: 'Zweistellig', text: '10 Einheiten gespeichert.', progress: (s) => count(s.sessions.length, 10) },
   { id: 'sessions50', group: 'Dranbleiben', icon: '📅', title: 'Routine', text: '50 Einheiten gespeichert.', progress: (s) => count(s.sessions.length, 50) },
   { id: 'sessions100', group: 'Dranbleiben', icon: '💯', title: 'Hundert', text: '100 Einheiten gespeichert.', progress: (s) => count(s.sessions.length, 100) },
-  { id: 'hours5', group: 'Dranbleiben', icon: '⏱️', title: 'Fünf Stunden', text: '300 Minuten insgesamt geübt.', progress: (s) => count(totalMinutes(s), 300) },
-  { id: 'hours20', group: 'Dranbleiben', icon: '⏱️', title: 'Zwanzig Stunden', text: '1.200 Minuten insgesamt geübt.', progress: (s) => count(totalMinutes(s), 1200) },
+  { id: 'hours5', group: 'Dranbleiben', icon: '⏱️', title: 'Fünf Stunden', text: '300 Minuten insgesamt geübt.', progress: (s) => count(totalMinutes(s.sessions), 300) },
+  { id: 'hours20', group: 'Dranbleiben', icon: '⏱️', title: 'Zwanzig Stunden', text: '1.200 Minuten insgesamt geübt.', progress: (s) => count(totalMinutes(s.sessions), 1200) },
   { id: 'weekgoal', group: 'Dranbleiben', icon: '🎯', title: 'Wochenziel', text: 'Das Wochenziel einmal erreicht.', progress: (s) => count(maxWeekSessions(s), s.settings.weeklyGoal) },
   {
     id: 'full45',
@@ -188,7 +198,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     icon: '💪',
     title: 'Volles Programm',
     text: 'Alle Blöcke einer Einheit gespielt, nichts übersprungen.',
-    progress: (s) => flag(s.sessions.some((x) => fullPlan(x) || ['A', 'B', 'C'].every((m) => x.modules.includes(m as 'A')))),
+    progress: (s) => flag(s.sessions.some((x) => fullPlan(x) || (['A', 'B', 'C'] as const).every((m) => x.modules.includes(m)))),
   },
   { id: 'early', group: 'Dranbleiben', icon: '🌅', title: 'Frühschicht', text: 'Eine Einheit vor 9 Uhr.', progress: (s) => flag(s.sessions.some((x) => hourOf(x) < 9)) },
   { id: 'late', group: 'Dranbleiben', icon: '🌙', title: 'Nachtschicht', text: 'Eine Einheit nach 22 Uhr.', progress: (s) => flag(s.sessions.some((x) => hourOf(x) >= 22)) },
@@ -212,12 +222,12 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   // Treffsicherheit
   { id: 'hit90', group: 'Treffsicherheit', icon: '🎯', title: 'Scharfschütze', text: 'Eine Treffer-Runde (ab 8 Zielen) mit mindestens 90 %.', progress: (s) => flag(goodRound(s, ['mic', 'self'], 8, 0.9)) },
   { id: 'mic100', group: 'Treffsicherheit', icon: '🎙️', title: 'Das Mikro lügt nicht', text: 'Eine Mikrofon-Runde (ab 8 Zielen) fehlerfrei.', progress: (s) => flag(goodRound(s, ['mic'], 8, 1)) },
-  { id: 'hits250', group: 'Treffsicherheit', icon: '🧭', title: 'Griffbrett-Kenner', text: '250 Töne auf Anhieb gefunden.', progress: (s) => count(hitTotals(s, ['mic', 'self']).hits, 250) },
-  { id: 'ear10', group: 'Treffsicherheit', icon: '👂', title: 'Gutes Gehör', text: '10 Skalen im Hör-Quiz richtig erkannt.', progress: (s) => count(hitTotals(s, ['ear']).hits, 10) },
+  { id: 'hits250', group: 'Treffsicherheit', icon: '🧭', title: 'Griffbrett-Kenner', text: '250 Töne auf Anhieb gefunden.', progress: (s) => count(hitTotals(s.hits, ['mic', 'self']).hits, 250) },
+  { id: 'ear10', group: 'Treffsicherheit', icon: '👂', title: 'Gutes Gehör', text: '10 Skalen im Hör-Quiz richtig erkannt.', progress: (s) => count(hitTotals(s.hits, ['ear']).hits, 10) },
   // Skalen
-  { id: 'scale1', group: 'Skalen', icon: '🎼', title: 'Neue Farbe', text: 'Den Skalen-Block mit einer Skala gespielt.', progress: (s) => count(scalesPlayed(s), 1) },
-  { id: 'scales3', group: 'Skalen', icon: '🎨', title: 'Drei Farben', text: 'Dorisch, Phrygisch und Harmonisch Moll gespielt.', progress: (s) => count(['dorian', 'phrygian', 'harmonic'].filter((id) => s.sessions.some((x) => x.scaleId === id && x.modules.includes('C'))).length, 3) },
-  { id: 'scalesAll', group: 'Skalen', icon: '🌈', title: 'Ganze Palette', text: `Alle ${SCALE_ROTATION.length} Skalen der Rotation gespielt.`, progress: (s) => count(SCALE_ROTATION.filter((id) => s.sessions.some((x) => x.scaleId === id && x.modules.includes('C'))).length, SCALE_ROTATION.length) },
+  { id: 'scale1', group: 'Skalen', icon: '🎼', title: 'Neue Farbe', text: 'Den Skalen-Block mit einer Skala gespielt.', progress: (s) => count(playedScales(s).size, 1) },
+  { id: 'scales3', group: 'Skalen', icon: '🎨', title: 'Drei Farben', text: 'Dorisch, Phrygisch und Harmonisch Moll gespielt.', progress: (s) => count(countPlayed(s, ['dorian', 'phrygian', 'harmonic']), 3) },
+  { id: 'scalesAll', group: 'Skalen', icon: '🌈', title: 'Ganze Palette', text: `Alle ${SCALE_ROTATION.length} Skalen der Rotation gespielt.`, progress: (s) => count(countPlayed(s, SCALE_ROTATION), SCALE_ROTATION.length) },
   { id: 'recall5', group: 'Skalen', icon: '🧠', title: 'Aus dem Kopf', text: '5 verschiedene Skalen fehlerfrei abgerufen.', progress: (s) => count(scalesRecalled(s), 5) },
   { id: 'master', group: 'Skalen', icon: '⭐', title: 'Skalen-Meister', text: 'Eine Skala mit allen 3 Sternen.', progress: (s) => count(Math.max(...SCALES.map((sc) => scaleProgress(s, sc.id).stars)), 3) },
   { id: 'keys3', group: 'Skalen', icon: '🔑', title: 'Tonarten-Wechsler', text: 'Den Skalen-Block in 3 verschiedenen Tonarten gespielt.', progress: (s) => count(keysPlayed(s), 3) },
@@ -245,24 +255,13 @@ const maxWeekSessions = (s: AppState) => Math.max(0, ...weekCounts(s).values());
 /** Most consecutive weeks (Monday-based) in which the weekly goal was met. */
 function bestWeekStreak(s: AppState) {
   const weeks = [...weekCounts(s)].filter(([, n]) => n >= s.settings.weeklyGoal).map(([k]) => k).sort((a, b) => a - b);
-  let best = 0;
-  let cur = 0;
-  let prev: number | null = null;
-  for (const w of weeks) {
-    // Round: a week across a DST switch is 7 days ± 1 hour.
-    cur = prev !== null && Math.round((w - prev) / (7 * 86400000)) === 1 ? cur + 1 : 1;
-    best = Math.max(best, cur);
-    prev = w;
-  }
-  return best;
+  return longestRun(weeks, 7 * DAY_MS);
 }
 
 /** Largest gap in days between two practice days (8 = a full week without practice). */
 function longestBreak(s: AppState) {
-  const days = [...new Set(s.sessions.map((x) => todayKey(new Date(x.date))))].sort().map((d) => Date.parse(d + 'T12:00:00'));
-  let best = 0;
-  for (let i = 1; i < days.length; i++) best = Math.max(best, Math.round((days[i] - days[i - 1]) / 86400000));
-  return best;
+  const days = practiceDays(s);
+  return Math.max(0, ...days.slice(1).map((d, i) => Math.round((d - days[i]) / DAY_MS)));
 }
 
 const BURSTS = ['A6', 'B5'];
@@ -274,7 +273,7 @@ function cleanAt(s: AppState, keys: string[]) {
 }
 
 /** Exercises whose stored tempo is above their first rated tempo. */
-const fasterExercises = (s: AppState) => Object.values(s.tempo).filter((t) => t.bpm > (t.history[0]?.bpm ?? t.bpm)).length;
+const fasterExercises = (s: AppState) => Object.values(s.tempo).filter((t) => tempoGain(t) > 0).length;
 
 /** Longest run of consecutive "clean" ratings on a single exercise. */
 function cleanRun(s: AppState) {
@@ -291,7 +290,7 @@ function cleanRun(s: AppState) {
 
 /** A hit round (≥ 8 targets, ≥ 80 % hits) whose average time to a hit is below `ms`. */
 const fastRound = (s: AppState, ms: number) =>
-  s.hits.some((h) => (h.mode === 'mic' || h.mode === 'self') && h.total >= 8 && h.hits / h.total >= 0.8 && h.avgMs !== undefined && h.avgMs < ms);
+  s.hits.some((h) => (h.mode === 'mic' || h.mode === 'self') && h.total >= 8 && h.hits / h.total >= 0.8 && (h.avgMs ?? Infinity) < ms);
 
 export function evaluate(state: AppState) {
   return ACHIEVEMENTS.map((def) => {

@@ -1,44 +1,30 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge, GoalRing, Heatmap, LevelBar } from '../components/Progress';
-import { MODULE_INFO } from '../data/exercises';
+import { Seg } from '../components/Seg';
+import { BUILDERS, MODULE_INFO } from '../data/exercises';
+import { RIFFS } from '../data/riffs';
+import { rngFrom } from '../data/rng';
 import { streak } from '../logic/plan';
-import { bpmGain, evaluate, keysPlayed, scaleProgress, sessionsThisWeek, totalXp, type AchievementGroup } from '../logic/progress';
-import type { AppState, TempoState } from '../logic/state';
+import { bpmGain, evaluate, hitTotals, keysPlayed, scaleProgress, sessionsThisWeek, tempoGain, totalMinutes, totalXp, type AchievementGroup } from '../logic/progress';
+import { DAY_MS, RATING_LABEL, type AppState, type HitLog, type TempoState } from '../logic/state';
 import { SCALES, getScale } from '../music/scales';
+import { HOME } from '../music/theory';
 
 const GROUPS: AchievementGroup[] = ['Dranbleiben', 'Tempo', 'Treffsicherheit', 'Skalen', 'Spielweise'];
 
-const TITLES: Record<string, string> = {
-  A1: 'Synchronisation',
-  A2: 'Fingerunabhängigkeit',
-  A3: 'Kurzer Lauf',
-  A4: 'Legato',
-  A5: 'Saitensprünge',
-  A6: 'Speed-Bursts',
-  B1: 'Chromatik 6 Saiten',
-  B2: 'Fingerfolge & Sprünge',
-  B3: 'C-Moll-Griffbild',
-  B4: 'Griffbild Legato',
-  B5: 'Bursts jede Saite',
-  D1: '3 gegen 2',
-  D2: '2 und 4 gegen 3',
-  D3: '3 gegen 4',
-  D4: 'Dreier-/Fünfergruppen',
-  E1: 'Tremolo-Picking',
-  E2: 'Lagenwechsel',
-  E3: 'Oktaven',
-  E5: 'Triller',
-  E6: 'Legato 3 pro Saite',
-  E7: 'Sweep-Picking',
-  E8: 'Sweep-Arpeggio',
-  R1: 'Unterteilungen',
-  R2: 'Gallop',
-  R3: 'Offbeats & Synkopen',
-  R4: 'Stopps & Abdämpfen',
-  K1: 'Akkordwechsel',
-};
-
-const RATING_LABEL = { clean: 'sauber', ok: 'ging so', rough: 'unsauber' } as const;
+/**
+ * Name of a tempo-tracked exercise: riffs by their name, the others by their
+ * title; exercises no longer in the plan by the title they were logged with.
+ */
+function exerciseTitles(state: AppState) {
+  const ctx = { rng: rngFrom('titles'), vary: false, scale: getScale('aeolian', HOME) };
+  const logged = new Map(state.sessions.flatMap((s) => s.results.map((r) => [r.key, r.title] as const)));
+  return (key: string) => {
+    const riff = /^W(\d+)$/.exec(key);
+    const title = riff ? RIFFS[Number(riff[1]) - 1]?.name : BUILDERS[key]?.(ctx).title;
+    return title ?? logged.get(key) ?? key;
+  };
+}
 
 function Sparkline({ t }: { t: TempoState }) {
   const pts = t.history.slice(-20);
@@ -73,17 +59,15 @@ export function History({ state }: { state: AppState }) {
   const ach = evaluate(state);
   const unlockedCount = ach.filter((a) => a.unlocked).length;
   const sessions = [...state.sessions].reverse();
-  const totalMin = Math.round(state.sessions.reduce((a, s) => a + s.seconds, 0) / 60);
-  const weekAgo = Date.now() - 7 * 86400000;
-  const week = state.sessions.filter((s) => Date.parse(s.date) > weekAgo);
-  const weekMin = Math.round(week.reduce((a, s) => a + s.seconds, 0) / 60);
-  const recentHits = state.hits.filter((h) => Date.parse(h.d) > Date.now() - 14 * 86400000);
-  const hitRate = (mode: 'mic' | 'self' | 'recall') => {
-    const hs = recentHits.filter((h) => h.mode === mode);
-    const total = hs.reduce((a, h) => a + h.total, 0);
-    return total ? Math.round((hs.reduce((a, h) => a + h.hits, 0) / total) * 100) : null;
+  const totalMin = totalMinutes(state.sessions);
+  const weekMin = totalMinutes(state.sessions.filter((s) => Date.parse(s.date) > Date.now() - 7 * DAY_MS));
+  const recentHits = state.hits.filter((h) => Date.parse(h.d) > Date.now() - 14 * DAY_MS);
+  const hitRate = (mode: HitLog['mode']) => {
+    const { rate } = hitTotals(recentHits, [mode]);
+    return rate === null ? null : Math.round(rate * 100);
   };
-  const tracked = Object.keys(TITLES).filter((k) => state.tempo[k]);
+  const tracked = Object.keys(state.tempo).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const titleOf = useMemo(() => exerciseTitles(state), [state]);
   const fingerRate = hitRate('mic') ?? hitRate('self');
   const recallRate = hitRate('recall');
 
@@ -139,14 +123,14 @@ export function History({ state }: { state: AppState }) {
           <h2>
             Erfolge <span className="muted">{unlockedCount}/{ach.length}</span>
           </h2>
-          <div className="seg small">
-            <button className={!onlyOpen ? 'on' : ''} onClick={() => setOnlyOpen(false)}>
-              Alle
-            </button>
-            <button className={onlyOpen ? 'on' : ''} onClick={() => setOnlyOpen(true)}>
-              Offen
-            </button>
-          </div>
+          <Seg
+            value={onlyOpen}
+            onChange={setOnlyOpen}
+            options={[
+              { value: false, label: 'Alle' },
+              { value: true, label: 'Offen' },
+            ]}
+          />
         </div>
         <p className="small muted">Tippe auf einen Erfolg für die Beschreibung.</p>
         {GROUPS.map((g) => {
@@ -213,12 +197,11 @@ export function History({ state }: { state: AppState }) {
             <tbody>
               {tracked.map((k) => {
                 const t = state.tempo[k];
-                const first = t.history[0]?.bpm ?? t.bpm;
-                const diff = t.bpm - first;
+                const diff = tempoGain(t);
                 return (
                   <tr key={k}>
                     <td>
-                      <span className="ex-id">{k}</span> {TITLES[k]}
+                      <span className="ex-id">{k}</span> {titleOf(k)}
                       <div className="small muted">{t.clean > 0 ? `${t.clean}/2 saubere Einheiten bis +BPM` : 'nächste saubere Einheit zählt'}</div>
                     </td>
                     <td>

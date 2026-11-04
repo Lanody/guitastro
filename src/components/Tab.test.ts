@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { moduleA, moduleB, scaleBlock } from '../data/exercises';
+import { BUILDERS, scaleBlock } from '../data/exercises';
 import { rngFrom } from '../data/rng';
 import type { Step } from '../data/types';
 import { countLabel, fillBars, padBar } from '../music/meter';
@@ -7,8 +7,7 @@ import { SCALES, getScale } from '../music/scales';
 import { groupLines, layoutTab, palmMarks, sustained, withRestBeats } from './Tab';
 
 const ctx = { rng: rngFrom('t'), vary: false, scale: getScale('dorian') };
-const [a1, , a3, a4, a5, a6] = moduleA(ctx);
-const [b1, , b3, , b5] = moduleB(ctx);
+const [a1, a3, a4, a5, a6, b1, b4, b5] = ['A1', 'A3', 'A4', 'A5', 'A6', 'B1', 'B4', 'B5'].map((k) => BUILDERS[k](ctx));
 const note = (f: number): Step => ({ s: 5, f });
 
 describe('tab layout (one column per step, equal time)', () => {
@@ -36,7 +35,7 @@ describe('tab layout (one column per step, equal time)', () => {
   });
   it('long patterns break at bar lines into equal lines', () => {
     expect(layoutTab(b1.pattern!.length, 2).map((l) => l.length)).toEqual([16, 16, 16]);
-    expect(layoutTab(b3.phases[0].pattern!.length, 2).map((l) => l[0] % 8)).toEqual([0, 0]);
+    expect(layoutTab(b4.phases[0].pattern!.length, 2).map((l) => l[0] % 8)).toEqual([0, 0]);
   });
   it('narrow fallback: one bar per line', () => {
     expect(layoutTab(16, 2, undefined, 1).map((l) => l.length)).toEqual([8, 8]);
@@ -82,7 +81,7 @@ describe('meter', () => {
     for (const scale of SCALES)
       for (let seed = 0; seed < 30; seed++) {
         const c = { rng: rngFrom(`m${seed}`), vary: seed > 0, scale };
-        for (const ex of [...moduleA(c), ...moduleB(c), ...scaleBlock({ ...c, stage: 'learn' }), ...scaleBlock({ ...c, stage: 'deepen' }), ...scaleBlock({ ...c, stage: 'apply' })])
+        for (const ex of [...Object.values(BUILDERS).map((b) => b(c)), ...scaleBlock({ ...c, stage: 'learn' }), ...scaleBlock({ ...c, stage: 'deepen' }), ...scaleBlock({ ...c, stage: 'apply' })])
           for (const ph of ex.phases) {
             const pat = ph.pattern ?? ex.pattern;
             if (!pat || ph.groups) continue;

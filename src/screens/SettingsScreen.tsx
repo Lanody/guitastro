@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { audio, metronome } from '../audio/engine';
 import { UNLOCK_DAYS } from '../logic/plan';
+import { Seg } from '../components/Seg';
 import { initialState, type AppState, type Settings } from '../logic/state';
 import { TuningPicker } from './Guide';
 
@@ -66,17 +67,15 @@ export function SettingsScreen({ state, onSettings, onReplace, onGuide }: Props)
       <section className="card settings-grid">
         <div>
           <span className="label">Variationen</span>
-          <div className="seg small">
-            <button className={s.variation === 'auto' ? 'on' : ''} onClick={() => onSettings({ variation: 'auto' })}>
-              Nach {UNLOCK_DAYS} Tagen
-            </button>
-            <button className={s.variation === 'always' ? 'on' : ''} onClick={() => onSettings({ variation: 'always' })}>
-              Sofort
-            </button>
-            <button className={s.variation === 'never' ? 'on' : ''} onClick={() => onSettings({ variation: 'never' })}>
-              Nie
-            </button>
-          </div>
+          <Seg
+            value={s.variation}
+            onChange={(variation) => onSettings({ variation })}
+            options={[
+              { value: 'auto', label: `Nach ${UNLOCK_DAYS} Tagen` },
+              { value: 'always', label: 'Sofort' },
+              { value: 'never', label: 'Nie' },
+            ]}
+          />
           <p className="small muted">
             Welche Übungen drankommen, wechselt mit jeder Lektion. Diese Einstellung betrifft die Übungen selbst: Fingerfolgen und Lagen bleiben zunächst zwei Wochen gleich, damit sich eine saubere Bewegung festigt;
             danach variieren auch Fingerfolgen, Lagen und Saitenpaare.

@@ -1,4 +1,4 @@
-import { levelInfo, minutesByDay, type AchievementDef } from '../logic/progress';
+import { levelInfo, minutesByDay, type AchievementDef, type evaluate } from '../logic/progress';
 import { todayKey } from '../logic/state';
 
 export function LevelBar({ xp, gained }: { xp: number; gained?: number }) {
@@ -69,15 +69,50 @@ export function Badge({
       {selected && <span className="small muted">{def.text}</span>}
       {unlocked ? (
         <span className="small badge-date">{date ? new Date(date).toLocaleDateString('de-DE') : 'erreicht'}</span>
-      ) : goal > 1 ? (
-        <span className="badge-track" aria-label={`${cur} von ${goal}`}>
-          <span style={{ width: `${(cur / goal) * 100}%` }} />
-          <small>
-            {cur}/{goal}
-          </small>
-        </span>
-      ) : null}
+      ) : (
+        <BadgeTrack cur={cur} goal={goal} />
+      )}
     </button>
+  );
+}
+
+/** Progress towards an achievement (hidden for yes/no achievements). */
+function BadgeTrack({ cur, goal }: { cur: number; goal: number }) {
+  if (goal <= 1) return null;
+  return (
+    <span className="badge-track" aria-label={`${cur} von ${goal}`}>
+      <span style={{ width: `${(cur / goal) * 100}%` }} />
+      <small>
+        {cur}/{goal}
+      </small>
+    </span>
+  );
+}
+
+/** The locked achievement closest to done; a button when it leads somewhere. */
+export function AchievementTeaser({ next, eyebrow, onClick }: { next: ReturnType<typeof evaluate>[number] | undefined; eyebrow: string; onClick?: () => void }) {
+  if (!next) return null;
+  const body = (
+    <>
+      <span className="eyebrow">{eyebrow}</span>
+      <div className="teaser-row">
+        <span className="badge-icon" aria-hidden>
+          {next.def.icon}
+        </span>
+        <div>
+          <b>{next.def.title}</b>
+          <div className="small muted">{next.def.text}</div>
+          <BadgeTrack cur={next.cur} goal={next.goal} />
+        </div>
+      </div>
+    </>
+  );
+  return onClick ? (
+    <button className="card teaser" onClick={onClick}>
+      {body}
+    </button>
+  ) : (
+    <section className="card teaser">{body}</section>
   );
 }
 

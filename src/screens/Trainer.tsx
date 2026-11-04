@@ -1,8 +1,12 @@
 import { useState } from 'react';
 import { HitTrainer } from '../components/HitTrainer';
+import { Seg } from '../components/Seg';
 import type { AppState, HitLog } from '../logic/state';
 import { ROOTS, SCALES, getScale } from '../music/scales';
 import { STRING_SHORT, allStrings } from '../music/theory';
+
+const RANGES = { low: [0, 7], mid: [5, 12], all: [0, 15] } as const;
+type Range = keyof typeof RANGES;
 
 interface Props {
   state: AppState;
@@ -14,9 +18,9 @@ export function Trainer({ state, onHit }: Props) {
   const [root, setRoot] = useState(state.scale.root ?? 0);
   const [kinds, setKinds] = useState<'rootColor' | 'all'>('rootColor');
   const [strings, setStrings] = useState(allStrings);
-  const [range, setRange] = useState<'low' | 'mid' | 'all'>('mid');
+  const [range, setRange] = useState<Range>('mid');
   const sc = getScale(scaleId, root);
-  const [from, to] = range === 'low' ? [0, 7] : range === 'mid' ? [5, 12] : [0, 15];
+  const [from, to] = RANGES[range];
   const toggleString = (s: number) => {
     const next = strings.includes(s) ? strings.filter((x) => x !== s) : [...strings, s].sort((a, b) => a - b);
     if (next.length) setStrings(next);
@@ -53,28 +57,18 @@ export function Trainer({ state, onHit }: Props) {
         </label>
         <div>
           <span className="label">Töne</span>
-          <div className="seg small">
-            <button className={kinds === 'rootColor' ? 'on' : ''} onClick={() => setKinds('rootColor')}>
-              Grundton + Farbton
-            </button>
-            <button className={kinds === 'all' ? 'on' : ''} onClick={() => setKinds('all')}>
-              Alle Skalentöne
-            </button>
-          </div>
+          <Seg
+            value={kinds}
+            onChange={setKinds}
+            options={[
+              { value: 'rootColor', label: 'Grundton + Farbton' },
+              { value: 'all', label: 'Alle Skalentöne' },
+            ]}
+          />
         </div>
         <div>
           <span className="label">Bundbereich</span>
-          <div className="seg small">
-            <button className={range === 'low' ? 'on' : ''} onClick={() => setRange('low')}>
-              0–7
-            </button>
-            <button className={range === 'mid' ? 'on' : ''} onClick={() => setRange('mid')}>
-              5–12
-            </button>
-            <button className={range === 'all' ? 'on' : ''} onClick={() => setRange('all')}>
-              0–15
-            </button>
-          </div>
+          <Seg value={range} onChange={setRange} options={(Object.keys(RANGES) as Range[]).map((r) => ({ value: r, label: RANGES[r].join('–') }))} />
         </div>
         <div>
           <span className="label">Saiten</span>
@@ -82,10 +76,10 @@ export function Trainer({ state, onHit }: Props) {
             {allStrings()
               .reverse()
               .map((s) => (
-              <button key={s} className={strings.includes(s) ? 'on' : ''} onClick={() => toggleString(s)}>
-                {STRING_SHORT[s]}
-              </button>
-            ))}
+                <button key={s} className={strings.includes(s) ? 'on' : ''} onClick={() => toggleString(s)}>
+                  {STRING_SHORT[s]}
+                </button>
+              ))}
           </div>
         </div>
       </section>
