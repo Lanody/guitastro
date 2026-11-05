@@ -159,8 +159,9 @@ for (const t of TUNINGS) {
             }
             for (const p of e.phases) expect(p.text, `${e.key} ${p.label}`).not.toMatch(/undefined|NaN/);
             if (e.key === 'E7' || e.key === 'E8') {
-              // Sweeps: only chord tones, and every picked note says which way the pick goes.
-              const pcs = progressionFor(sc, seed).concat(triad(sc, 0)).map((ch) => ch.pcs);
+              // Sweeps: only chord tones (the riff adds the chord's major dominant), and every picked note says which way the pick goes.
+              const chords = progressionFor(sc, seed).concat(triad(sc, 0)).map((ch) => ch.pcs);
+              const pcs = [...chords, ...chords.map((cs) => [...cs, ...[7, 11, 14].map((i) => midiToPc(cs[0] + i))])];
               for (const pat of allPatterns(e)) {
                 const ns = patternNotes(pat);
                 expect(pcs.some((cs) => ns.every((x) => cs.includes(midiToPc(fretMidi(x.s, x.f))))), `${e.key} ${sc.name}`).toBe(true);

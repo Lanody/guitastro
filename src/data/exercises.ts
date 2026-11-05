@@ -1076,13 +1076,18 @@ function sweepChord(ctx: BuildCtx) {
 /** Fret on string `s` for a note `semis` above `rootFret` on string `base`. */
 const above = (base: number, rootFret: number, s: number, semis: number) => rootFret + semis - (TUNING[s] - TUNING[base]);
 
-function e7(ctx: BuildCtx): Exercise {
-  const { v: c, orig } = sweepChord(ctx);
+/** Triad on the top three strings: root on the lowest of them (fret 3 or higher), third and fifth above. */
+function topTriad(c: Chord) {
   const { third, fifth } = chordSteps(c);
   const [g, b, e] = [TOP - 2, TOP - 1, TOP];
-  // Root on the third string from the top, at least fret 3 so the lower frets stay on the neck.
-  const r = midiToPc(c.root - TUNING[g]) < 3 ? midiToPc(c.root - TUNING[g]) + 12 : midiToPc(c.root - TUNING[g]);
-  const [fb, fe] = [above(g, r, b, third), above(g, r, e, fifth)];
+  const pc = midiToPc(c.root - TUNING[g]);
+  const r = pc < 3 ? pc + 12 : pc;
+  return { g, b, e, r, fb: above(g, r, b, third), fe: above(g, r, e, fifth) };
+}
+
+function e7(ctx: BuildCtx): Exercise {
+  const { v: c, orig } = sweepChord(ctx);
+  const { g, b, e, r, fb, fe } = topTriad(c);
   // One finger per fret from the lowest fret; in major the root and third share a fret and the ring finger rolls.
   const finger = (f: number) => Math.min(f - fe + 1, 4);
   const rolls = fb === r;
@@ -1127,6 +1132,15 @@ function e8(ctx: BuildCtx): Exercise {
   const r = midiToPc(c.root - TUNING[a]) || 12;
   const at = (s: number, semis: number) => above(a, r, s, semis);
   const [fa3, fd, fg, fb, fe, fo] = [r + third, at(d, fifth), at(g, 12), at(b, 12 + third), at(e, 12 + fifth), at(e, 24)];
+  // Riff on the top three strings: the triad up in downstrokes, then down over the dominant
+  // (its fifth and the leading tone) in upstrokes, so the loop resolves onto the root.
+  const t = topTriad(c);
+  const [tOct, tNinth, tLead] = [above(t.g, t.r, t.e, 12), above(t.g, t.r, t.b, 2), t.r - 1];
+  const riff: Step[] = [
+    'rest', picked(t.g, t.r, 'down'), picked(t.b, t.fb, 'down'), picked(t.e, t.fe, 'down'), 'hold',
+    picked(t.e, tOct, 'up'), picked(t.b, tNinth, 'up'), picked(t.g, tLead, 'up'),
+  ];
+  const dominant = noteName(c.root + 7);
   // Up with downstrokes, top note by hammer-on, back down with upstrokes: one pass = 12 notes.
   const sweep: Step[] = [
     picked(a, r, 'down'), n(a, fa3, 'h'), picked(d, fd, 'down'), picked(g, fg, 'down'), picked(b, fb, 'down'), picked(e, fe, 'down'),
@@ -1141,8 +1155,15 @@ function e8(ctx: BuildCtx): Exercise {
     intro: `Arpeggio ${c.name} über fünf Saiten, Grundton ${noteName(c.root)} auf der ${STRING_DAT[a]} (Bund ${r}). Aufwärts nur Abschläge, abwärts nur Aufschläge; auf der untersten und obersten Saite des Arpeggios verbinden Hammer-on und Pull-off. Beim Wiederholen wird der erste Ton zum Pull-off. Jeder Ton einzeln – die Greifhand dämpft, was nicht klingen soll.`,
     variant: orig ? undefined : `Arpeggio ${c.name} (${c.roman})`,
     phases: [
-      { label: 'Minute 1', seconds: 60, sub: 2, text: 'Achtel. Langsam genug, dass jeder Ton gleich laut und getrennt klingt.', pattern: [...sweep, ...sweep] },
-      { label: 'Minute 2', seconds: 60, sub: 3, alt: 2, text: 'Triolen: ein Durchgang pro Takt. Nur wenn Minute 1 sauber war – sonst bei Achteln bleiben.', pattern: sweep },
+      { label: 'Achtel', seconds: 40, sub: 2, text: 'Langsam genug, dass jeder Ton gleich laut und getrennt klingt.', pattern: [...sweep, ...sweep] },
+      { label: 'Triolen', seconds: 40, sub: 3, alt: 2, text: 'Ein Durchgang pro Takt. Nur wenn die Achtel sauber waren – sonst bei Achteln bleiben.', pattern: sweep },
+      {
+        label: 'Riff',
+        seconds: 40,
+        sub: 2,
+        text: `${c.name} auf den oberen drei Saiten: ${STRING_SHORT[t.g]} ${t.r}, ${STRING_SHORT[t.b]} ${t.fb}, ${STRING_SHORT[t.e]} ${t.fe} im Abschlag, dann über ${dominant} zurück – ${STRING_SHORT[t.e]} ${tOct}, ${STRING_SHORT[t.b]} ${tNinth}, ${STRING_SHORT[t.g]} ${tLead} im Aufschlag. Der letzte Ton ist der Leitton, er zieht zurück zum Grundton. Kleiner Finger auf ${STRING_SHORT[t.e]} ${tOct}, Zeigefinger auf Bund ${t.fe}.`,
+        pattern: [...riff, ...riff],
+      },
     ],
     tracksTempo: true,
   };
