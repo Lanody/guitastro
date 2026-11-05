@@ -1082,31 +1082,37 @@ function e7(ctx: BuildCtx): Exercise {
   const [g, b, e] = [TOP - 2, TOP - 1, TOP];
   // Root on the third string from the top, at least fret 3 so the lower frets stay on the neck.
   const r = midiToPc(c.root - TUNING[g]) < 3 ? midiToPc(c.root - TUNING[g]) + 12 : midiToPc(c.root - TUNING[g]);
-  const [fb, fe, fo] = [above(g, r, b, third), above(g, r, e, fifth), above(g, r, e, 12)];
-  const two: Step[] = [picked(b, fb, 'down'), picked(e, fe, 'down'), picked(e, fo, 'up'), picked(b, fb, 'up')];
-  const three: Step[] = [picked(g, r, 'down'), picked(b, fb, 'down'), picked(e, fe, 'down'), n(e, fo, 'h'), n(e, fe, 'p'), picked(b, fb, 'up')];
+  const [fb, fe] = [above(g, r, b, third), above(g, r, e, fifth)];
+  // One finger per fret from the lowest fret; in major the root and third share a fret and the ring finger rolls.
+  const finger = (f: number) => Math.min(f - fe + 1, 4);
+  const rolls = fb === r;
+  // Minute 1: the fretting hand stays put, only the picking motion is new.
+  const two: Step[] = [picked(b, fb, 'down'), picked(e, fe, 'down'), picked(e, fe, 'up'), picked(b, fb, 'up')];
+  // Minute 2: the same turnaround over three strings, still in eighths.
+  const three: Step[] = [picked(g, r, 'down'), picked(b, fb, 'down'), picked(e, fe, 'down'), picked(e, fe, 'up'), picked(b, fb, 'up'), picked(g, r, 'up')];
+  const grip = `${STRING_SHORT[g]} ${r} (Finger ${finger(r)}), ${STRING_SHORT[b]} ${fb} (Finger ${finger(fb)}), ${STRING_SHORT[e]} ${fe} (Finger 1)`;
   return {
     key: 'E7',
     module: 'E',
     num: 7,
     title: 'Sweep-Picking',
     focus: 'accuracy',
-    intro: `Beim Sweep fällt das Plektrum in einer Bewegung durch mehrere Saiten (⊓ = Abschlag, V = Aufschlag) – wie ein langsamer Akkordanschlag, nur dass jeder Ton allein klingt. Dazu hebt der Greiffinger ab, sobald der nächste Ton kommt. Dreiklang ${c.name}: ${STRING_SHORT[g]} ${r}, ${STRING_SHORT[b]} ${fb}, ${STRING_SHORT[e]} ${fe} und ${fo}.`,
+    intro: `Beim Sweep fällt das Plektrum in einer Bewegung durch mehrere Saiten (⊓ = Abschlag, V = Aufschlag) – wie ein langsamer Akkordanschlag, nur dass jeder Ton allein klingt. Dreiklang ${c.name}: ${grip}.${rolls ? ` Der Ringfinger rollt von der ${STRING_DAT[g]} auf die ${STRING_DAT[b]}, statt zu springen.` : ''} Damit nichts zusammenklingt, liegt der Handballen der Anschlaghand auf den tieferen Saiten, und der Greiffinger lockert, sobald der nächste Ton kommt – er bleibt auf der Saite liegen und dämpft sie.`,
     variant: orig ? undefined : `Dreiklang ${c.name} (${c.roman})`,
     phases: [
       {
         label: 'Minute 1',
         seconds: 60,
         sub: 2,
-        text: `Zwei Saiten: ein Abschlag durch ${STRING_SHORT[b]} und ${STRING_SHORT[e]}, auf dem Rückweg ein Aufschlag durch ${STRING_SHORT[e]} und ${STRING_SHORT[b]}. Das Plektrum drückt durch, statt jede Saite einzeln zu zupfen.`,
+        text: `Zwei Saiten, die Greifhand bleibt liegen: ein Abschlag durch ${STRING_SHORT[b]} und ${STRING_SHORT[e]}, dann ein Aufschlag durch ${STRING_SHORT[e]} und ${STRING_SHORT[b]}. Das Plektrum drückt durch und landet an der nächsten Saite, statt jede Saite einzeln zu zupfen.`,
         pattern: [...two, ...two],
       },
       {
         label: 'Minute 2',
         seconds: 60,
-        sub: 3,
-        text: `Drei Saiten als Triolen: ein Abschlag durch alle drei, oben Hammer-on und Pull-off, zurück mit Aufschlag auf der ${STRING_DAT[b]}. Kein Ton darf mit dem nächsten zusammenklingen.`,
-        pattern: [...three, ...three],
+        sub: 2,
+        text: `Drei Saiten, weiter Achtel: ein Abschlag durch ${STRING_SHORT[g]}, ${STRING_SHORT[b]} und ${STRING_SHORT[e]}, ein Aufschlag zurück. Kein Ton darf mit dem nächsten zusammenklingen – lieber langsamer.`,
+        pattern: [...three, ...three, ...three, ...three],
       },
     ],
     tracksTempo: true,
